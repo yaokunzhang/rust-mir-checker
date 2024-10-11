@@ -3,6 +3,12 @@
 **/*.rs.bk
 *.dot
 *.png
+png
+log
+mir
+dot
+example
+get_png.sh
 examples/**/Cargo.lock
 examples/**/**/Cargo.lock
 scripts/real-world-crates/**/
