@@ -17,6 +17,7 @@ use crate::analysis::numerical::linear_constraint::LinearConstraintSystem;
 use crate::analysis::wto::{Wto, WtoCircle, WtoVertex, WtoVisitor};
 use crate::analysis::z3_solver::Z3Solver;
 use crate::checker::assertion_checker::AssertionChecker;
+use crate::checker::unsafe_func_checker::{self, UnsafeFuncChecker};
 use crate::checker::checker_trait::CheckerTrait;
 use itertools::Itertools;
 use log::{debug, error, warn};
@@ -83,6 +84,9 @@ where
     // `Place` to `SymbolicValue` Cache, used to extract conditions when analyzing assertions
     pub place_to_abstract_value: HashMap<mir::Place<'tcx>, Rc<SymbolicValue>>,
 
+    // 使用Span映射到Path的方式，存储各个参数的Path, 尝试过Terminator, TerminatorKind等作key, 由于当时的版本这些数据结构还没有实现Eq, Hash，所以都放弃了。
+    pub terminator_to_place: HashMap<Span, Vec<(Rc<Path>, Rc<SymbolicValue>)>>,
+
     // The start index of variables. Because functions may return values that contain local variables, so we
     // increase the index offsets so that returned variables can be distinguished from normal local variables
     pub fresh_variable_offset: usize,
@@ -139,6 +143,7 @@ where
             call_stack,
             z3_solver: Z3Solver::default(),
             buffered_diagnostics: vec![],
+            terminator_to_place: HashMap::new(),
         }
     }
 
@@ -169,8 +174,11 @@ where
 
         self.context.checked_def_ids.insert(self.def_id);
 
-        let mut checker = AssertionChecker::<DomainType>::new(self);
-        checker.run();
+        let mut assertion_checker = AssertionChecker::<DomainType>::new(self);
+        assertion_checker.run();
+
+        let mut unsafe_func_checker = UnsafeFuncChecker::<DomainType>::new(self);
+        unsafe_func_checker.run();
 
         // Store diagnostic messages for this function
         self.context

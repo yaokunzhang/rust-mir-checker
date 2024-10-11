@@ -32,6 +32,7 @@ use rustc_middle::mir;
 use rustc_middle::mir::interpret::{ConstValue, Scalar};
 use rustc_middle::ty::subst::SubstsRef;
 use rustc_middle::ty::{Const, ParamConst, ScalarInt, Ty, TyKind, UserTypeAnnotationIndex};
+use rustc_span::Span;
 use std::borrow::Borrow;
 use std::convert::TryFrom;
 use std::convert::TryInto;
@@ -157,7 +158,8 @@ where
     }
 
     fn visit_terminator(&mut self, terminator: &mir::Terminator<'tcx>) {
-        let mir::Terminator { kind, .. } = terminator;
+        let mir::Terminator { source_info, kind } = terminator;
+        let span: Span = source_info.span;
         // Ignore the following to reduce logging
         if matches!(
             kind,
@@ -196,7 +198,7 @@ where
                 args,
                 destination,
                 ..
-            } => self.visit_call(func, args, destination),
+            } => self.visit_call(func, args, destination, &span),
             mir::TerminatorKind::Assert {
                 cond,
                 expected,
@@ -1346,6 +1348,7 @@ where
         func: &mir::Operand<'tcx>,
         args: &[mir::Operand<'tcx>],
         destination: &Option<(mir::Place<'tcx>, mir::BasicBlock)>,
+        span: &Span,
     ) {
         // debug!("source location {:?}", self.body_visitor.current_span);
         debug!("function operand: {:?}, arguments: {:?}", func, args);
@@ -1389,6 +1392,21 @@ where
             .iter()
             .map(|arg| (self.get_operand_path(arg), self.visit_operand(arg)))
             .collect();
+
+        let mut args_path_vec: Vec<(Rc<Path>, Rc<SymbolicValue>)> = Vec::new();
+        for args_index in 0..args.len() {
+            args_path_vec.push((
+                actual_args[args_index].0.clone(),
+                actual_args[args_index].1.clone(),
+            ));
+        }
+        if self.body_visitor.terminator_to_place.contains_key(span) {
+        } else {
+            self.body_visitor
+                .terminator_to_place
+                .insert(*span, args_path_vec);
+        }
+
         let actual_argument_types: Vec<Ty<'tcx>> = args
             .iter()
             .map(|arg| {
