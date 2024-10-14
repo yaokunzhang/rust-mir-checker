@@ -92,17 +92,13 @@ where
         if let TerminatorKind::Call {
             func,
             args,
-            destination,
-            cleanup,
-            from_hir_call,
-            fn_span,
+            ..
         } = &kind
         {
             // 检测是否为offset函数，
             debug!("current func is {:?} and span is {:?}", func, span,);
             // TODO:额外的匹配单元
             let func_str = format!("{:?}", func);
-            let unsafe_func_str = String::from("std::ptr::mut_ptr::<impl *mut i32>::offset");
             let mut check_result = CheckerResult::Safe;
             
             if let Some(unsafe_func_type) = self.get_unsafe_func(func_str) {
@@ -110,7 +106,6 @@ where
                     UnsafeFuncType::Offset => {
                         self.str_ptr_mut_ptr_offset_handler(args, &span, abstract_value)
                     }
-                    _ => CheckerResult::Safe
                 }
             }
             
@@ -173,7 +168,7 @@ where
 
     fn refine_arg_path(&self, path_and_value: &(Rc<Path>, Rc<SymbolicValue>)) -> Rc<Path> {
         match &path_and_value.1.expression {
-            Expression::CompileTimeConstant(ConstantValue::Int(constant)) => {
+            Expression::CompileTimeConstant(ConstantValue::Int(_constant)) => {
                 path_and_value.0.clone()
             }
             Expression::Reference(old_path) => old_path.clone(),

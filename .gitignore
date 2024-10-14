@@ -2,6 +2,7 @@
 **/mir_dump
 **/*.rs.bk
 *.dot
+.vscode
 *.png
 png
 log
