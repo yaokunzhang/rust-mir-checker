@@ -319,7 +319,7 @@ where
                 self.handle_into_vec();
                 return true;
             }
-            KnownNames::CoreOpsIndex => {
+            KnownNames::CoreOpsIndex | KnownNames::PointerOffset=> {
                 self.handle_index();
                 return true;
             }

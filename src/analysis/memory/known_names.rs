@@ -11,6 +11,7 @@ use rustc_hir::def_id::DefId;
 use rustc_hir::definitions::{DefPathData, DisambiguatedDefPathData};
 use rustc_middle::ty::TyCtxt;
 use std::collections::HashMap;
+use std::eprintln;
 
 /// Well known definitions (language provided items) that are treated in special ways.
 #[derive(Clone, Copy, Debug, Eq, PartialOrd, PartialEq, Hash, Ord)]
@@ -32,6 +33,8 @@ pub enum KnownNames {
     StdAsMutPtr,
 
     VecFromRawParts,
+
+    PointerOffset,
 }
 
 /// An analysis lifetime cache that contains a map from def ids to known names.
@@ -161,6 +164,26 @@ impl KnownNamesCache {
                 .unwrap_or(KnownNames::None)
         };
 
+        let get_known_name_for_ptr_mut_ptr_namespace = |mut def_path_data_iter: Iter<'_>| {
+            def_path_data_iter.next();
+            get_path_data_elem_name(def_path_data_iter.next())
+                .map(|n| match n.as_str().deref() {
+                    "offset" => KnownNames::PointerOffset,
+                    _ => KnownNames::None,
+                })
+                .unwrap_or(KnownNames::None)
+        };
+
+        let get_known_name_for_ptr_namespace = |mut def_path_data_iter: Iter<'_>| {
+            get_path_data_elem_name(def_path_data_iter.next())
+                .map(|n| match n.as_str().deref() {
+                    "mut_ptr" => get_known_name_for_ptr_mut_ptr_namespace(def_path_data_iter),
+                    _ => KnownNames::None,
+                })
+                .unwrap_or(KnownNames::None)
+        };
+
+
         let get_known_name_for_known_crate = |mut def_path_data_iter: Iter<'_>| {
             get_path_data_elem_name(def_path_data_iter.next())
                 .map(|n| match n.as_str().deref() {
@@ -171,6 +194,7 @@ impl KnownNamesCache {
                     "panicking" => get_known_name_for_panicking_namespace(def_path_data_iter),
                     "convert" => get_known_name_for_convert_namespace(def_path_data_iter),
                     "vec" => get_known_name_for_vec_namespace(def_path_data_iter),
+                    "ptr" => get_known_name_for_ptr_namespace(def_path_data_iter),
                     "mir_checker_verify" => KnownNames::MirCheckerVerify,
                     _ => {
                         debug!("Normal function: {:?}", n.as_str());
