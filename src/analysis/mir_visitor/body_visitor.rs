@@ -177,8 +177,8 @@ where
         let mut assertion_checker = AssertionChecker::<DomainType>::new(self);
         assertion_checker.run();
 
-        let mut unsafe_func_checker = UnsafeFuncChecker::<DomainType>::new(self);
-        unsafe_func_checker.run();
+        // let mut unsafe_func_checker = UnsafeFuncChecker::<DomainType>::new(self);
+        // unsafe_func_checker.run();
 
         // Store diagnostic messages for this function
         self.context
