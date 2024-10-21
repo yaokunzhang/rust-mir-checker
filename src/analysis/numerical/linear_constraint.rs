@@ -310,6 +310,7 @@ fn symbolic_to_expression(val: Rc<SymbolicValue>) -> Result<LinearExpression, &'
         | LessThan { .. }
         | Or { .. }
         | Ne { .. }
+        | Mul { .. }
         | Reference(..)
         | LogicalNot { .. }
         // | Offset { .. }

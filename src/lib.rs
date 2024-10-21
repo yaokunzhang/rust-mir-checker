@@ -78,8 +78,8 @@ pub mod analysis {
 // Modules for program property checkers
 pub mod checker {
     pub mod assertion_checker;
-    pub mod unsafe_func_checker;
     pub mod checker_trait;
+    pub mod unsafe_func_checker;
 }
 
 // Useful utilities

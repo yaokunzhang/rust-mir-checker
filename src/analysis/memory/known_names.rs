@@ -12,6 +12,7 @@ use rustc_hir::definitions::{DefPathData, DisambiguatedDefPathData};
 use rustc_middle::ty::TyCtxt;
 use std::collections::HashMap;
 use std::eprintln;
+use std::iter::Iterator;
 
 /// Well known definitions (language provided items) that are treated in special ways.
 #[derive(Clone, Copy, Debug, Eq, PartialOrd, PartialEq, Hash, Ord)]
@@ -34,7 +35,9 @@ pub enum KnownNames {
 
     VecFromRawParts,
 
-    PointerOffset,
+    PtrOffset,
+    PtrByteOffset,
+    StdSliceIndexGetUncheckedMut,
 }
 
 /// An analysis lifetime cache that contains a map from def ids to known names.
@@ -133,11 +136,23 @@ impl KnownNamesCache {
                 .unwrap_or(KnownNames::None)
         };
 
-        let get_known_name_for_slice_namespace = |mut def_path_data_iter: Iter<'_>| {
+        let get_known_name_for_slice_index_namespace = |mut def_path_data_iter: Iter<'_>| {
             def_path_data_iter.next();
             get_path_data_elem_name(def_path_data_iter.next())
                 .map(|n| match n.as_str().deref() {
+                    "get_unchecked_mut" => KnownNames::StdSliceIndexGetUncheckedMut,
+                    _ => KnownNames::None,
+                })
+                .unwrap_or(KnownNames::None)
+        };
+
+        let get_known_name_for_slice_namespace = |mut def_path_data_iter: Iter<'_>| {
+            // def_path_data_iter.next();
+            get_path_data_elem_name(def_path_data_iter.next())
+                .map(|n| match n.as_str().deref() {
+                    // not occur
                     "into_vec" => KnownNames::StdIntoVec,
+                    "index" => get_known_name_for_slice_index_namespace(def_path_data_iter),
                     _ => KnownNames::None,
                 })
                 .unwrap_or(KnownNames::None)
@@ -168,7 +183,8 @@ impl KnownNamesCache {
             def_path_data_iter.next();
             get_path_data_elem_name(def_path_data_iter.next())
                 .map(|n| match n.as_str().deref() {
-                    "offset" => KnownNames::PointerOffset,
+                    "offset" | "wrapping_offset" => KnownNames::PtrOffset,
+                    "byte_offset" | "wrapping_byte_offset" => KnownNames::PtrByteOffset,
                     _ => KnownNames::None,
                 })
                 .unwrap_or(KnownNames::None)
@@ -178,11 +194,11 @@ impl KnownNamesCache {
             get_path_data_elem_name(def_path_data_iter.next())
                 .map(|n| match n.as_str().deref() {
                     "mut_ptr" => get_known_name_for_ptr_mut_ptr_namespace(def_path_data_iter),
+                    "const_ptr" => get_known_name_for_ptr_mut_ptr_namespace(def_path_data_iter),
                     _ => KnownNames::None,
                 })
                 .unwrap_or(KnownNames::None)
         };
-
 
         let get_known_name_for_known_crate = |mut def_path_data_iter: Iter<'_>| {
             get_path_data_elem_name(def_path_data_iter.next())
@@ -195,6 +211,7 @@ impl KnownNamesCache {
                     "convert" => get_known_name_for_convert_namespace(def_path_data_iter),
                     "vec" => get_known_name_for_vec_namespace(def_path_data_iter),
                     "ptr" => get_known_name_for_ptr_namespace(def_path_data_iter),
+                    // "core"=>
                     "mir_checker_verify" => KnownNames::MirCheckerVerify,
                     _ => {
                         debug!("Normal function: {:?}", n.as_str());

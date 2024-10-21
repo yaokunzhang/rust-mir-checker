@@ -162,6 +162,14 @@ pub enum Expression {
         /// all result in the same widened value.
         operand: Rc<SymbolicValue>,
     },
+
+    /// An expression that is left multiplied by right. *
+    Mul {
+        // The value of the left operand.
+        left: Rc<SymbolicValue>,
+        // The value of the right operand.
+        right: Rc<SymbolicValue>,
+    },
 }
 
 impl Debug for Expression {
@@ -223,6 +231,9 @@ impl Debug for Expression {
             Expression::Join { left, right } => {
                 f.write_fmt(format_args!("({:?}) join ({:?})", left, right))
             }
+            Expression::Mul { left, right } => {
+                f.write_fmt(format_args!("({:?}) * ({:?})", left, right))
+            }
         }
     }
 }
@@ -254,6 +265,7 @@ impl Expression {
             Expression::Widen { operand, .. } => operand.expression.infer_type(),
             // TODO: simply regarding numerical values as `i128` is not precise
             Expression::Numerical(..) => I128,
+            Expression::Mul { left, .. } => left.expression.infer_type(),
         }
     }
 
@@ -283,6 +295,7 @@ impl Expression {
             | Expression::LessOrEqual { left, right }
             | Expression::LessThan { left, right }
             | Expression::Ne { left, right }
+            | Expression::Mul { left, right }
             | Expression::Or { left, right } => {
                 left.expression.record_heap_blocks(result);
                 right.expression.record_heap_blocks(result);

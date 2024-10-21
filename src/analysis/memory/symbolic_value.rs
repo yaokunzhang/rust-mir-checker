@@ -225,6 +225,7 @@ pub trait SymbolicValueTrait: Sized {
     fn less_or_equal(&self, other: Self) -> Self;
     fn less_than(&self, other: Self) -> Self;
     fn not_equals(&self, other: Self) -> Self;
+    fn mul(&self, other: Self) -> Self;
     fn logical_not(&self) -> Self;
     fn or(&self, other: Self) -> Self;
     fn record_heap_blocks(&self, result: &mut HashSet<Rc<SymbolicValue>>);
@@ -287,6 +288,9 @@ where
             Expression::Ne { left, right } => left
                 .refine_paths(environment)
                 .not_equals(right.refine_paths(environment)),
+            Expression::Mul { left, right } => left
+                .refine_paths(environment)
+                .mul(right.refine_paths(environment)),
             Expression::LogicalNot { operand } => operand.refine_paths(environment).logical_not(),
             Expression::Or { left, right } => left
                 .refine_paths(environment)
@@ -370,6 +374,9 @@ where
             Expression::Ne { left, right } => left
                 .refine_parameters(arguments)
                 .not_equals(right.refine_parameters(arguments)),
+            Expression::Mul { left, right } => left
+                .refine_parameters(arguments)
+                .mul(right.refine_parameters(arguments)),
             Expression::Or { left, right } => left
                 .refine_parameters(arguments)
                 .or(right.refine_parameters(arguments)),
@@ -447,6 +454,10 @@ impl SymbolicValueTrait for Rc<SymbolicValue> {
                 }
                 Expression::LogicalNot { operand } => operand.depend_on_path_value(path, value),
                 Expression::Ne { left, right } => {
+                    left.depend_on_path_value(path, value)
+                        || right.depend_on_path_value(path, value)
+                }
+                Expression::Mul { left, right } => {
                     left.depend_on_path_value(path, value)
                         || right.depend_on_path_value(path, value)
                 }
@@ -1027,6 +1038,23 @@ impl SymbolicValueTrait for Rc<SymbolicValue> {
         })
     }
 
+    /// Returns the product of two symbolic values.
+    fn mul(&self, other: Rc<SymbolicValue>) -> Rc<SymbolicValue> {
+        // 检查两个值是否都是编译时常量
+        if let (Expression::CompileTimeConstant(v1), Expression::CompileTimeConstant(v2)) =
+            (&self.expression, &other.expression)
+        {
+            // 如果是，则直接返回它们的乘积
+            return Rc::new(v1.mul(v2).into());
+        };
+
+        // 对于非编译时常量，生成二元乘法表达式
+        SymbolicValue::make_binary(self.clone(), other, |left, right| Expression::Mul {
+            left,
+            right,
+        })
+    }
+
     /// Returns an element that is "self || other".
     fn or(&self, other: Rc<SymbolicValue>) -> Rc<SymbolicValue> {
         fn unsimplified(x: &Rc<SymbolicValue>, y: Rc<SymbolicValue>) -> Rc<SymbolicValue> {
@@ -1326,6 +1354,9 @@ impl SymbolicValueTrait for Rc<SymbolicValue> {
             Expression::Ne { left, right } => left
                 .refine_with(path_condition, depth + 1)
                 .not_equals(right.refine_with(path_condition, depth + 1)),
+            Expression::Mul { left, right } => left
+                .refine_with(path_condition, depth + 1)
+                .mul(right.refine_with(path_condition, depth + 1)),
             Expression::LogicalNot { operand } => {
                 operand.refine_with(path_condition, depth + 1).logical_not()
             }

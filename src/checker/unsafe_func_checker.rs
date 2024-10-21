@@ -89,18 +89,13 @@ where
     ) {
         let Terminator { source_info, kind } = term;
         let span = source_info.span;
-        if let TerminatorKind::Call {
-            func,
-            args,
-            ..
-        } = &kind
-        {
+        if let TerminatorKind::Call { func, args, .. } = &kind {
             // 检测是否为offset函数，
             debug!("current func is {:?} and span is {:?}", func, span,);
             // TODO:额外的匹配单元
             let func_str = format!("{:?}", func);
             let mut check_result = CheckerResult::Safe;
-            
+
             if let Some(unsafe_func_type) = self.get_unsafe_func(func_str) {
                 check_result = match unsafe_func_type {
                     UnsafeFuncType::Offset => {
@@ -108,16 +103,13 @@ where
                     }
                 }
             }
-            
+
             match check_result {
                 CheckerResult::Safe => (),
                 CheckerResult::Unsafe => {
                     let error = self.body_visitor.context.session.struct_span_warn(
                         span,
-                        format!(
-                            "[MirChecker] Provably error: buffer overflow",
-                        )
-                        .as_str(),
+                        format!("[MirChecker] Provably error: buffer overflow",).as_str(),
                     );
                     self.body_visitor.emit_diagnostic(
                         error,
@@ -128,10 +120,7 @@ where
                 CheckerResult::Warning => {
                     let warning = self.body_visitor.context.session.struct_span_warn(
                         span,
-                        format!(
-                            "[MirChecker] Possible error: buffer overflow",
-                        )
-                        .as_str(),
+                        format!("[MirChecker] Possible error: buffer overflow",).as_str(),
                     );
                     self.body_visitor.emit_diagnostic(
                         warning,
