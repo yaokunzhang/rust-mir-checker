@@ -14,8 +14,8 @@ use super::utils;
 use az::OverflowingCast;
 use rug::Integer;
 use rustc_hir::def_id::DefId;
-use rustc_middle::ty::subst::SubstsRef;
-use rustc_middle::ty::{Ty, TyCtxt};
+// use rustc_middle::ty::subst::SubstsRef;
+use rustc_middle::ty::{GenericArgsRef, Ty, TyCtxt};
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter, Result};
 use std::rc::Rc;
@@ -72,7 +72,7 @@ impl ConstantValue {
     pub fn for_function<'a, 'tcx, 'compiler>(
         function_id: usize,
         def_id: DefId,
-        generic_args: Option<SubstsRef<'tcx>>,
+        generic_args: Option<GenericArgsRef<'tcx>>,
         tcx: TyCtxt<'tcx>,
         known_names_cache: &mut KnownNamesCache,
     ) -> ConstantValue {

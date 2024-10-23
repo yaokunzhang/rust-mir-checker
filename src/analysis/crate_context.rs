@@ -11,7 +11,7 @@ use crate::analysis::memory::constant_value::ConstantValueCache;
 use crate::analysis::memory::known_names::KnownNamesCache;
 use rustc_errors::DiagnosticBuilder;
 use rustc_hir::def_id::DefId;
-use rustc_middle::ty::subst::SubstsRef;
+use rustc_middle::ty::{GenericArgsRef, TyCtxt};
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter, Result};
 
@@ -31,7 +31,8 @@ pub struct CrateContext<'compiler, 'tcx> {
 
     pub known_names_cache: KnownNamesCache,
 
-    pub substs_cache: HashMap<DefId, SubstsRef<'tcx>>,
+    // pub substs_cache: HashMap<DefId, SubstsRef<'tcx>>,
+    pub generic_args_cache: HashMap<DefId, GenericArgsRef<'tcx>>,
 }
 
 impl<'compiler, 'tcx> Debug for CrateContext<'compiler, 'tcx> {
@@ -47,7 +48,7 @@ impl<'compiler, 'tcx> Default for CrateContext<'compiler, 'tcx> {
             constant_value_cache: ConstantValueCache::default(),
             known_names_cache: KnownNamesCache::create_cache_from_language_items(),
             function_name_cache: HashMap::new(),
-            substs_cache: HashMap::new(),
+            generic_args_cache: HashMap::new(),
         }
     }
 }

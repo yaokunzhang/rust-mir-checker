@@ -25,8 +25,12 @@ impl MirCheckerCallbacks {
 impl rustc_driver::Callbacks for MirCheckerCallbacks {
     /// Called before creating the compiler instance
     fn config(&mut self, config: &mut interface::Config) {
-        self.source_name = config.input.source_name().to_string();
-        config.crate_cfg.insert(("mir_checker".to_string(), None));
+        self.source_name =config
+        .input
+        .source_name()
+        .prefer_remapped_unconditionaly()
+        .to_string();
+        config.crate_cfg.push("mirai".to_string());
         info!("Source file: {}", self.source_name);
     }
 
@@ -40,7 +44,6 @@ impl rustc_driver::Callbacks for MirCheckerCallbacks {
         queries
             .global_ctxt()
             .unwrap()
-            .peek_mut()
             .enter(|tcx| self.run_analysis(compiler, tcx));
         Compilation::Continue
     }

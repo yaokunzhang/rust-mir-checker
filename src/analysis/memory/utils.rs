@@ -12,8 +12,11 @@ use rustc_hir::def_id::DefId;
 use rustc_hir::definitions::DefPathData;
 use rustc_middle::ty;
 // use rustc_middle::ty::print::{FmtPrinter, Printer};
-use rustc_middle::ty::subst::{GenericArgKind, SubstsRef};
-use rustc_middle::ty::{DefIdTree, ProjectionTy, Ty, TyCtxt, TyKind};
+// use rustc_middle::ty::subst::{GenericArgKind, SubstsRef};
+// use rustc_middle::ty::{DefIdTree, ProjectionTy, Ty, TyCtxt, TyKind};
+use rustc_middle::ty::{
+    FloatTy, GenericArgKind, GenericArgsRef, IntTy, Ty, TyCtxt, TyKind, UintTy,
+};
 use std::rc::Rc;
 
 /// Appends a string to str with the constraint that it must uniquely identify ty and also
@@ -21,63 +24,62 @@ use std::rc::Rc;
 /// generic trait methods).
 fn append_mangled_type<'tcx>(str: &mut String, ty: Ty<'tcx>, tcx: TyCtxt<'tcx>) {
     trace!("append_mangled_type {:?} to {}", ty.kind(), str);
-    use rustc_ast::ast;
-    use TyKind::*;
+    use std::fmt::Write;
     match ty.kind() {
-        Bool => str.push_str("bool"),
-        Char => str.push_str("char"),
-        Int(int_ty) => {
+        TyKind::Bool => str.push_str("bool"),
+        TyKind::Char => str.push_str("char"),
+        TyKind::Int(int_ty) => {
             str.push_str(match int_ty {
-                ast::IntTy::Isize => "isize",
-                ast::IntTy::I8 => "i8",
-                ast::IntTy::I16 => "i16",
-                ast::IntTy::I32 => "i32",
-                ast::IntTy::I64 => "i64",
-                ast::IntTy::I128 => "i128",
+                IntTy::Isize => "isize",
+                IntTy::I8 => "i8",
+                IntTy::I16 => "i16",
+                IntTy::I32 => "i32",
+                IntTy::I64 => "i64",
+                IntTy::I128 => "i128",
             });
         }
-        Uint(uint_ty) => {
+        TyKind::Uint(uint_ty) => {
             str.push_str(match uint_ty {
-                ast::UintTy::Usize => "usize",
-                ast::UintTy::U8 => "u8",
-                ast::UintTy::U16 => "u16",
-                ast::UintTy::U32 => "u32",
-                ast::UintTy::U64 => "u64",
-                ast::UintTy::U128 => "u128",
+                UintTy::Usize => "usize",
+                UintTy::U8 => "u8",
+                UintTy::U16 => "u16",
+                UintTy::U32 => "u32",
+                UintTy::U64 => "u64",
+                UintTy::U128 => "u128",
             });
         }
-        Float(float_ty) => {
+        TyKind::Float(float_ty) => {
             str.push_str(match float_ty {
-                ast::FloatTy::F32 => "f32",
-                ast::FloatTy::F64 => "f64",
+                FloatTy::F32 => "f32",
+                FloatTy::F64 => "f64",
             });
         }
-        Adt(def, subs) => {
-            str.push_str(qualified_type_name(tcx, def.did).as_str());
-            for sub in subs.into_iter() {
+        TyKind::Adt(def, subs) => {
+            str.push_str(qualified_type_name(tcx, def.did()).as_str());
+            for sub in *subs {
                 if let GenericArgKind::Type(ty) = sub.unpack() {
                     str.push('_');
                     append_mangled_type(str, ty, tcx);
                 }
             }
         }
-        Closure(def_id, subs) => {
+        TyKind::Closure(def_id, subs) => {
             str.push_str("closure_");
             str.push_str(qualified_type_name(tcx, *def_id).as_str());
-            for sub in subs.as_closure().substs {
+            for sub in subs.as_closure().args {
                 if let GenericArgKind::Type(ty) = sub.unpack() {
                     str.push('_');
                     append_mangled_type(str, ty, tcx);
                 }
             }
         }
-        Dynamic(trait_data, ..) => {
+        TyKind::Dynamic(trait_data, ..) => {
             str.push_str("trait_");
             if let Some(principal) = trait_data.principal() {
                 let principal =
                     tcx.normalize_erasing_late_bound_regions(ty::ParamEnv::reveal_all(), principal);
                 str.push_str(qualified_type_name(tcx, principal.def_id).as_str());
-                for sub in principal.substs {
+                for sub in principal.args {
                     if let GenericArgKind::Type(ty) = sub.unpack() {
                         str.push('_');
                         append_mangled_type(str, ty, tcx);
@@ -85,56 +87,56 @@ fn append_mangled_type<'tcx>(str: &mut String, ty: Ty<'tcx>, tcx: TyCtxt<'tcx>) 
                 }
             }
         }
-        Foreign(def_id) => {
+        TyKind::Foreign(def_id) => {
             str.push_str("extern_type_");
             str.push_str(qualified_type_name(tcx, *def_id).as_str());
         }
-        FnDef(def_id, subs) => {
+        TyKind::FnDef(def_id, subs) => {
             str.push_str("fn_");
             str.push_str(qualified_type_name(tcx, *def_id).as_str());
-            for sub in subs.into_iter() {
+            for sub in *subs {
                 if let GenericArgKind::Type(ty) = sub.unpack() {
                     str.push('_');
                     append_mangled_type(str, ty, tcx);
                 }
             }
         }
-        Generator(def_id, subs, ..) => {
-            str.push_str("generator_");
+        TyKind::Coroutine(def_id, subs) => {
+            str.push_str("coroutine_");
             str.push_str(qualified_type_name(tcx, *def_id).as_str());
-            for sub in subs.as_generator().substs {
+            for sub in subs.as_coroutine().args {
                 if let GenericArgKind::Type(ty) = sub.unpack() {
                     str.push('_');
                     append_mangled_type(str, ty, tcx);
                 }
             }
         }
-        GeneratorWitness(binder) => {
-            for ty in binder.skip_binder().iter() {
+        TyKind::CoroutineWitness(_def_id, subs) => {
+            for ty in subs.types() {
                 str.push('_');
                 append_mangled_type(str, ty, tcx)
             }
         }
-        Opaque(def_id, subs) => {
+        TyKind::Alias(rustc_middle::ty::Opaque, rustc_middle::ty::AliasTy { def_id, args, .. }) => {
             str.push_str("impl_");
             str.push_str(qualified_type_name(tcx, *def_id).as_str());
-            for sub in subs.into_iter() {
+            for sub in *args {
                 if let GenericArgKind::Type(ty) = sub.unpack() {
                     str.push('_');
                     append_mangled_type(str, ty, tcx);
                 }
             }
         }
-        Str => str.push_str("str"),
-        Array(ty, _) => {
+        TyKind::Str => str.push_str("str"),
+        TyKind::Array(ty, _) => {
             str.push_str("array_");
-            append_mangled_type(str, ty, tcx);
+            append_mangled_type(str, *ty, tcx);
         }
-        Slice(ty) => {
+        TyKind::Slice(ty) => {
             str.push_str("slice_");
-            append_mangled_type(str, ty, tcx);
+            append_mangled_type(str, *ty, tcx);
         }
-        RawPtr(ty_and_mut) => {
+        TyKind::RawPtr(ty_and_mut) => {
             str.push_str("pointer_");
             match ty_and_mut.mutbl {
                 rustc_hir::Mutability::Mut => str.push_str("mut_"),
@@ -142,47 +144,47 @@ fn append_mangled_type<'tcx>(str: &mut String, ty: Ty<'tcx>, tcx: TyCtxt<'tcx>) 
             }
             append_mangled_type(str, ty_and_mut.ty, tcx);
         }
-        Ref(_, ty, mutability) => {
+        TyKind::Ref(_, ty, mutability) => {
             str.push_str("ref_");
             if *mutability == rustc_hir::Mutability::Mut {
                 str.push_str("mut_");
             }
-            append_mangled_type(str, ty, tcx);
+            append_mangled_type(str, *ty, tcx);
         }
-        FnPtr(poly_fn_sig) => {
+        TyKind::FnPtr(poly_fn_sig) => {
             let fn_sig = poly_fn_sig.skip_binder();
             str.push_str("fn_ptr_");
             for arg_type in fn_sig.inputs() {
-                append_mangled_type(str, arg_type, tcx);
+                append_mangled_type(str, *arg_type, tcx);
                 str.push('_');
             }
             append_mangled_type(str, fn_sig.output(), tcx);
         }
-        Tuple(types) => {
+        TyKind::Tuple(types) => {
             str.push_str("tuple_");
-            str.push_str(&format!("{}", types.len()));
+            write!(str, "{}", types.len()).expect("enough space");
             types.iter().for_each(|t| {
                 str.push('_');
-                append_mangled_type(str, t.expect_ty(), tcx);
+                append_mangled_type(str, t, tcx);
             });
         }
-        Param(param_ty) => {
+        TyKind::Param(param_ty) => {
             str.push_str("generic_par_");
-            str.push_str(&param_ty.name.as_str());
+            str.push_str(param_ty.name.as_str());
         }
-        Projection(projection_ty) => {
+        TyKind::Alias(rustc_middle::ty::Projection, projection_ty) => {
             append_mangled_type(str, projection_ty.self_ty(), tcx);
             str.push_str("_as_");
-            str.push_str(qualified_type_name(tcx, projection_ty.item_def_id).as_str());
+            str.push_str(qualified_type_name(tcx, projection_ty.def_id).as_str());
         }
-        Never => {
+        TyKind::Never => {
             str.push('_');
         }
         _ => {
             //todo: add cases as the need arises, meanwhile make the need obvious.
             debug!("{:?}", ty);
             debug!("{:?}", ty.kind());
-            str.push_str(&format!("default formatted {:?}", ty))
+            write!(str, "default formatted {ty:?}").expect("enough space");
         }
     }
 }
@@ -254,31 +256,53 @@ pub fn summary_key_str(tcx: TyCtxt<'_>, def_id: DefId) -> Rc<String> {
     Rc::new(name)
 }
 
+
+// fn push_component_name(component_data: DefPathData, target: &mut String) {
+//     use std::ops::Deref;
+//     use DefPathData::*;
+//     match component_data {
+//         TypeNs(name) | ValueNs(name) | MacroNs(name) | LifetimeNs(name) => {
+//             target.push_str(name.as_str().deref());
+//         }
+//         _ => target.push_str(match component_data {
+//             CrateRoot => "crate_root",
+//             Impl => "implement",
+//             Misc => "miscellaneous",
+//             ClosureExpr => "closure",
+//             Ctor => "ctor",
+//             AnonConst => "constant",
+//             ImplTrait => "implement_trait",
+//             _ => unreachable!(),
+//         }),
+//     };
+// }
+
 fn push_component_name(component_data: DefPathData, target: &mut String) {
-    use std::ops::Deref;
     use DefPathData::*;
     match component_data {
         TypeNs(name) | ValueNs(name) | MacroNs(name) | LifetimeNs(name) => {
-            target.push_str(name.as_str().deref());
+            target.push_str(name.as_str());
         }
         _ => target.push_str(match component_data {
             CrateRoot => "crate_root",
             Impl => "implement",
-            Misc => "miscellaneous",
-            ClosureExpr => "closure",
+            ForeignMod => "foreign",
+            Use => "use",
+            GlobalAsm => "global_asm",
+            Closure => "closure",
             Ctor => "ctor",
             AnonConst => "constant",
-            ImplTrait => "implement_trait",
+            OpaqueTy => "opaque",
             _ => unreachable!(),
         }),
     };
 }
 
 /// Returns false if any of the generic arguments are themselves generic
-pub fn are_concrete(gen_args: SubstsRef<'_>) -> bool {
+pub fn are_concrete(gen_args: GenericArgsRef<'_>) -> bool {
     for gen_arg in gen_args.iter() {
         if let GenericArgKind::Type(ty) = gen_arg.unpack() {
-            if !is_concrete(&ty.kind()) {
+            if !is_concrete(ty.kind()) {
                 return false;
             }
         }
@@ -289,17 +313,38 @@ pub fn are_concrete(gen_args: SubstsRef<'_>) -> bool {
 /// Determines if the given type is fully concrete.
 pub fn is_concrete(ty: &TyKind<'_>) -> bool {
     match ty {
-        TyKind::Bound(..) | TyKind::Param(..) | TyKind::Infer(..) | TyKind::Error(..) => false,
         TyKind::Adt(_, gen_args)
         | TyKind::Closure(_, gen_args)
         | TyKind::FnDef(_, gen_args)
-        | TyKind::Generator(_, gen_args, _)
-        | TyKind::Opaque(_, gen_args)
-        | TyKind::Projection(ProjectionTy {
-            substs: gen_args, ..
-        })
-        | TyKind::Tuple(gen_args) => are_concrete(gen_args),
-        TyKind::Ref(_, ty, _) => is_concrete(&ty.kind()),
+        | TyKind::Coroutine(_, gen_args)
+        | TyKind::Alias(_, rustc_middle::ty::AliasTy { args: gen_args, .. }) => {
+            are_concrete(gen_args)
+        }
+        TyKind::Tuple(types) => types.iter().all(|t| is_concrete(t.kind())),
+        TyKind::Bound(..)
+        | TyKind::Dynamic(..)
+        | TyKind::Error(..)
+        | TyKind::Infer(..)
+        | TyKind::Param(..) => false,
+        TyKind::Ref(_, ty, _) => is_concrete(ty.kind()),
         _ => true,
     }
 }
+
+// /// Determines if the given type is fully concrete.
+// pub fn is_concrete(ty: &TyKind<'_>) -> bool {
+//     match ty {
+//         TyKind::Bound(..) | TyKind::Param(..) | TyKind::Infer(..) | TyKind::Error(..) => false,
+//         TyKind::Adt(_, gen_args)
+//         | TyKind::Closure(_, gen_args)
+//         | TyKind::FnDef(_, gen_args)
+//         | TyKind::Generator(_, gen_args, _)
+//         | TyKind::Opaque(_, gen_args)
+//         | TyKind::Projection(ProjectionTy {
+//             substs: gen_args, ..
+//         })
+//         | TyKind::Tuple(gen_args) => are_concrete(gen_args),
+//         TyKind::Ref(_, ty, _) => is_concrete(&ty.kind()),
+//         _ => true,
+//     }
+// }

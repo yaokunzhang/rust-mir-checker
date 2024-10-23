@@ -252,7 +252,6 @@ fn main() {
 
     let mut builder = bindgen::Builder::default()
         .derive_default(true)
-        .rustfmt_bindings(true)
         .header("src/apron_sys_wrapper.h")
         .clang_arg("-Iapron/num")
         .clang_arg("-Iapron/itv")
@@ -283,13 +282,13 @@ fn main() {
         .clang_arg("-Wstrict-prototypes");
 
     for t in INCLUDED_TYPES {
-        builder = builder.whitelist_type(t);
+        builder = builder.allowlist_type(t);
     }
     for f in INCLUDED_FUNCTIONS {
-        builder = builder.whitelist_function(f);
+        builder = builder.allowlist_function(f);
     }
     for v in INCLUDED_VARS {
-        builder = builder.whitelist_var(v);
+        builder = builder.allowlist_var(v);
     }
     let bindings = builder.generate().expect("Unable to generate bindings");
 

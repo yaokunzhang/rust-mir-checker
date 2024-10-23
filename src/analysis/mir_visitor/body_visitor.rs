@@ -25,7 +25,7 @@ use rug::Integer;
 use rustc_errors::DiagnosticBuilder;
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir;
-use rustc_middle::ty::{Ty, TyKind};
+use rustc_middle::ty::{AdtDef, Const, GenericArgsRef, Ty, TyCtxt, TyKind, TypeAndMut, UintTy};
 use rustc_span::Span;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
@@ -627,7 +627,7 @@ where
             if self.call_stack.contains(&def_id) {
                 return;
             }
-            let generic_args = self.crate_context.substs_cache.get(&def_id).cloned();
+            let generic_args = self.crate_context.generic_args_cache.get(&def_id).cloned();
             let callee_generic_argument_map = if let Some(generic_args) = generic_args {
                 self.type_visitor
                     .get_generic_arguments_map(def_id, generic_args, &[])

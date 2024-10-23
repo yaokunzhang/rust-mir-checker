@@ -30,7 +30,7 @@ use rug::Integer;
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir;
 use rustc_middle::mir::interpret::{ConstValue, Scalar};
-use rustc_middle::ty::subst::SubstsRef;
+use rustc_middle::ty::{GenericArg, GenericArgsRef};
 use rustc_middle::ty::{Const, ParamConst, ScalarInt, Ty, TyKind, UserTypeAnnotationIndex};
 use rustc_span::Span;
 use std::borrow::Borrow;
@@ -358,7 +358,7 @@ where
     ) -> &ConstantValue {
         self.body_visitor
             .crate_context
-            .substs_cache
+            .generic_args_cache
             .insert(def_id, generic_args);
 
         &mut self
@@ -621,7 +621,7 @@ where
                 );
                 self.body_visitor
                     .crate_context
-                    .substs_cache
+                    .generic_args_cache
                     .insert(def_id, substs);
                 let path: Rc<Path> = match promoted {
                     Some(promoted) => {
@@ -1380,7 +1380,7 @@ where
         let substs = self
             .body_visitor
             .crate_context
-            .substs_cache
+            .generic_args_cache
             .get(&callee_def_id)
             .expect("MIR should ensure this");
         // Try to specialize generic arguments
@@ -1589,7 +1589,7 @@ where
                 if let TyKind::Opaque(def_id, substs) = specialized_closure_ty.kind() {
                     self.body_visitor
                         .crate_context
-                        .substs_cache
+                        .generic_args_cache
                         .insert(*def_id, substs);
                     let closure_ty = self.body_visitor.context.tcx.type_of(*def_id);
                     let map = self.body_visitor.type_visitor.get_generic_arguments_map(
