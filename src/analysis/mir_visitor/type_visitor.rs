@@ -12,7 +12,7 @@ use crate::analysis::memory::path::{Path, PathEnum, PathSelector};
 use crate::analysis::memory::utils;
 use rustc_hir::def_id::DefId;
 // use rustc_middle::mir;
-// use rustc_middle::ty::subst::{GenericArg, GenericArgKind, InternalSubsts, SubstsRef};
+// use rustc_middle::ty::subst::{GenericArg, GenericArgKind, InternalSubsts, GenericArgsRef};
 // use rustc_middle::ty::{
 //     AdtDef, Binder, ExistentialPredicate, ExistentialProjection, ExistentialTraitRef, FnSig,
 //     ParamTy, Ty, TyCtxt, TyKind, TypeAndMut,
@@ -33,7 +33,7 @@ pub struct TypeVisitor<'tcx> {
     pub actual_argument_types: Vec<Ty<'tcx>>,
     pub def_id: DefId,
     pub generic_argument_map: Option<HashMap<rustc_span::Symbol, Ty<'tcx>>>,
-    pub generic_arguments: Option<SubstsRef<'tcx>>,
+    pub generic_arguments: Option<GenericArgsRef<'tcx>>,
     pub mir: mir::Body<'tcx>,
     pub path_ty_cache: HashMap<Rc<Path>, Ty<'tcx>>,
     tcx: TyCtxt<'tcx>,
@@ -224,7 +224,7 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
     pub fn get_generic_arguments_map(
         &self,
         def_id: DefId,
-        generic_args: SubstsRef<'tcx>,
+        generic_args: GenericArgsRef<'tcx>,
         actual_argument_types: &[Ty<'tcx>],
     ) -> Option<HashMap<rustc_span::Symbol, Ty<'tcx>>> {
         let mut substitution_map = self.generic_argument_map.clone();
@@ -541,9 +541,9 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
 
     pub fn specialize_substs(
         &self,
-        substs: SubstsRef<'tcx>,
+        substs: GenericArgsRef<'tcx>,
         map: &Option<HashMap<rustc_span::Symbol, Ty<'tcx>>>,
-    ) -> SubstsRef<'tcx> {
+    ) -> GenericArgsRef<'tcx> {
         let specialized_generic_args: Vec<GenericArg<'_>> = substs
             .iter()
             .map(|gen_arg| self.specialize_generic_argument(gen_arg, &map))

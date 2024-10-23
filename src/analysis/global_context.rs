@@ -35,12 +35,12 @@ impl<'tcx> Default for WtoCache<'tcx> {
 }
 
 /// Stores the global information of the analysis
-pub struct GlobalContext<'tcx, 'compiler> {
+pub struct GlobalContext<'tcx, 'compilation> {
     /// The central data structure of the compiler
     pub tcx: TyCtxt<'tcx>,
 
     /// Represents the data associated with a compilation session for a single crate
-    pub session: &'compiler Session,
+    pub session: &'compilation Session,
 
     /// The entry function of the analysis
     pub entry_point: DefId,
@@ -61,24 +61,24 @@ pub struct GlobalContext<'tcx, 'compiler> {
     pub analysis_options: AnalysisOption,
 
     /// Generated diagnostic messages for each DefId
-    pub diagnostics_for: DiagnosticsForDefId<'compiler>,
+    pub diagnostics_for: DiagnosticsForDefId<'compilation>,
 }
 
-impl<'tcx, 'compiler> fmt::Debug for GlobalContext<'tcx, 'compiler> {
+impl<'tcx, 'compilation> fmt::Debug for GlobalContext<'tcx, 'compilation> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "GlobalContext")
     }
 }
 
-impl<'tcx, 'compiler> GlobalContext<'tcx, 'compiler> {
+impl<'tcx, 'compilation> GlobalContext<'tcx, 'compilation> {
     pub fn new(
-        session: &'compiler Session,
+        session: &'compilation Session,
         tcx: TyCtxt<'tcx>,
         analysis_options: AnalysisOption,
     ) -> Option<Self> {
         if analysis_options.show_entries {
             let mut names = HashSet::new();
-            for def_id in tcx.body_owners() {
+            for def_id in tcx.hir().body_owners() {
                 if tcx.def_kind(def_id) == DefKind::Fn || tcx.def_kind(def_id) == DefKind::AssocFn {
                     let name = tcx.item_name(def_id.to_def_id());
                     if !names.contains(&name) {
@@ -93,7 +93,7 @@ impl<'tcx, 'compiler> GlobalContext<'tcx, 'compiler> {
 
         if analysis_options.show_entries_index {
             // let mut names = HashSet::new();
-            for def_id in tcx.body_owners() {
+            for def_id in tcx.hir().body_owners() {
                 if tcx.def_kind(def_id) == DefKind::Fn || tcx.def_kind(def_id) == DefKind::AssocFn {
                     // let name = tcx.item_name(def_id.to_def_id());
                     // if !names.contains(&name) {
@@ -110,7 +110,7 @@ impl<'tcx, 'compiler> GlobalContext<'tcx, 'compiler> {
         let mut entry_func = None;
 
         // List functions
-        for def_id in tcx.body_owners() {
+        for def_id in tcx.hir().body_owners() {
             let def_kind = tcx.def_kind(def_id);
             // Find the DefId for the entry point, note that the entry point must be a function
             if def_kind == DefKind::Fn || def_kind == DefKind::AssocFn {

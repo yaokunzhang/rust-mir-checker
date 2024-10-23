@@ -70,7 +70,7 @@ impl MirCheckerCallbacks {
 
         // Initialize global analysis context
         if let Some(mut global_context) =
-            GlobalContext::new(compiler.session(), tcx, self.analysis_options.clone())
+            GlobalContext::new(&compiler.sess, tcx, self.analysis_options.clone())
         {
             // Initialize numerical analyzer
             let mut numerical_analysis = NumericalAnalysis::new(&mut global_context);

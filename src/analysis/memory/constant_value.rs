@@ -14,7 +14,7 @@ use super::utils;
 use az::OverflowingCast;
 use rug::Integer;
 use rustc_hir::def_id::DefId;
-// use rustc_middle::ty::subst::SubstsRef;
+// use rustc_middle::ty::subst::GenericArgsRef;
 use rustc_middle::ty::{GenericArgsRef, Ty, TyCtxt};
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter, Result};
@@ -404,7 +404,7 @@ impl<'tcx> ConstantValueCache<'tcx> {
         &mut self,
         def_id: DefId,
         ty: Ty<'tcx>,
-        generic_args: Option<SubstsRef<'tcx>>,
+        generic_args: Option<GenericArgsRef<'tcx>>,
         tcx: TyCtxt<'tcx>,
         known_names_cache: &mut KnownNamesCache,
     ) -> &ConstantValue {

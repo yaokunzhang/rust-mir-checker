@@ -31,7 +31,7 @@ pub struct CrateContext<'compiler, 'tcx> {
 
     pub known_names_cache: KnownNamesCache,
 
-    // pub substs_cache: HashMap<DefId, SubstsRef<'tcx>>,
+    // pub substs_cache: HashMap<DefId, GenericArgsRef<'tcx>>,
     pub generic_args_cache: HashMap<DefId, GenericArgsRef<'tcx>>,
 }
 

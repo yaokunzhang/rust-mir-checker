@@ -25,7 +25,7 @@ use crate::checker::checker_trait::CheckerTrait;
 use itertools::Itertools;
 use rustc_hir::def_id::DefId;
 // use rustc_middle::mir;
-// use rustc_middle::ty::subst::SubstsRef;
+// use rustc_middle::ty::subst::GenericArgsRef;
 // use rustc_middle::ty::{Ty, TyKind};
 use rustc_middle::mir;
 use rustc_middle::ty::{GenericArg, GenericArgKind, GenericArgsRef, Ty, TyKind, UintTy};
@@ -51,7 +51,7 @@ where
     pub callee_fun_val: Rc<SymbolicValue>,
 
     /// The callee's generic argument list
-    pub callee_generic_arguments: Option<SubstsRef<'tcx>>,
+    pub callee_generic_arguments: Option<GenericArgsRef<'tcx>>,
 
     /// The callee's KnownNames
     pub callee_known_name: KnownNames,
@@ -97,7 +97,7 @@ where
     pub(crate) fn new(
         block_visitor: &'call mut BlockVisitor<'tcx, 'analysis, 'block, 'compilation, DomainType>,
         callee_def_id: DefId,
-        callee_generic_arguments: Option<SubstsRef<'tcx>>,
+        callee_generic_arguments: Option<GenericArgsRef<'tcx>>,
         callee_generic_argument_map: Option<HashMap<rustc_span::Symbol, Ty<'tcx>>>,
         func_const: ConstantValue,
     ) -> CallVisitor<'call, 'block, 'analysis, 'compilation, 'tcx, DomainType> {

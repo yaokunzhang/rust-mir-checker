@@ -29,7 +29,7 @@ use crate::analysis::z3_solver::SmtResult;
 use rug::Integer;
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir;
-use rustc_middle::mir::interpret::{ConstValue, Scalar};
+use rustc_middle::mir::interpret::{alloc_range, GlobalAlloc, Scalar};
 use rustc_middle::ty::{GenericArg, GenericArgsRef};
 use rustc_middle::ty::{Const, ParamConst, ScalarInt, Ty, TyKind, UserTypeAnnotationIndex};
 use rustc_span::Span;
@@ -354,7 +354,7 @@ where
         &mut self,
         def_id: DefId,
         ty: Ty<'tcx>,
-        generic_args: SubstsRef<'tcx>,
+        generic_args: GenericArgsRef<'tcx>,
     ) -> &ConstantValue {
         self.body_visitor
             .crate_context
@@ -1179,7 +1179,7 @@ where
 
     fn visit_projection_elem(
         &mut self,
-        projection_elem: &mir::ProjectionElem<mir::Local, &rustc_middle::ty::TyS<'tcx>>,
+        projection_elem: &mir::ProjectionElem<mir::Local, Ty<'tcx>>,
     ) -> Option<PathSelector> {
         match projection_elem {
             mir::ProjectionElem::Deref => Some(PathSelector::Deref),
@@ -1492,8 +1492,8 @@ where
                 .type_visitor
                 .get_rustc_place_type(place, self.body_visitor.current_span),
             mir::Operand::Constant(constant) => {
-                let mir::Constant { literal, .. } = constant.borrow();
-                literal.ty
+                let mir::ConstOperand { const_, .. } = constant.borrow();
+                const_.ty()
             }
         }
     }
