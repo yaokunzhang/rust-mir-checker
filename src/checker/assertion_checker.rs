@@ -99,7 +99,7 @@ where
                     match check_result {
                         CheckerResult::Safe => (),
                         CheckerResult::Unsafe => {
-                            let error = self.body_visitor.context.session.struct_span_warn(
+                            let error = self.body_visitor.context.session.dcx().struct_span_warn(
                                 span,
                                 format!(
                                     "[MirChecker] Provably error: {:?}",
@@ -114,7 +114,7 @@ where
                             );
                         }
                         CheckerResult::Warning => {
-                            let warning = self.body_visitor.context.session.struct_span_warn(
+                            let warning = self.body_visitor.context.session.dcx().struct_span_warn(
                                 span,
                                 format!(
                                     "[MirChecker] Possible error: {:?}",

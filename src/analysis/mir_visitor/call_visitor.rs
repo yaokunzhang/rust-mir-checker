@@ -68,7 +68,7 @@ where
     pub actual_argument_types: &'call [Ty<'tcx>],
 
     /// The destination where the return value is assigned
-    pub destination: Option<(mir::Place<'tcx>, mir::BasicBlock)>,
+    pub destination: mir::Place<'tcx>,
 
     /// If the arguments are functions, store them
     pub function_constant_args: &'call [(Rc<Path>, Rc<SymbolicValue>)],
@@ -642,7 +642,7 @@ where
         assert!(self.destination.is_none());
         let body_visitor = &mut self.block_visitor.body_visitor;
         if !body_visitor.state.is_bottom() {
-            let warning = body_visitor.context.session.struct_span_warn(
+            let warning = body_visitor.context.session.dcx().struct_span_warn(
                 body_visitor.current_span,
                 format!("[MirChecker] Possible error: run into panic code").as_str(),
             );
@@ -726,7 +726,7 @@ where
         match check_result {
             CheckerResult::Safe => (),
             CheckerResult::Unsafe => {
-                let mut error = body_visitor.context.session.struct_span_warn(
+                let mut error = body_visitor.context.session.dcx().struct_span_warn(
                     body_visitor.current_span,
                     format!("[MirChecker] Provably error: index out of bound",).as_str(),
                 );
@@ -735,7 +735,7 @@ where
                 //return;
             }
             CheckerResult::Warning => {
-                let mut warning = body_visitor.context.session.struct_span_warn(
+                let mut warning = body_visitor.context.session.dcx().struct_span_warn(
                     body_visitor.current_span,
                     format!("[MirChecker] Possible error: index out of bound").as_str(),
                 );
@@ -801,7 +801,7 @@ where
         match check_result {
             CheckerResult::Safe => (),
             CheckerResult::Unsafe => {
-                let mut error = body_visitor.context.session.struct_span_warn(
+                let mut error = body_visitor.context.session.dcx().struct_span_warn(
                     body_visitor.current_span,
                     format!("[MirChecker] Provably error: index out of bound",).as_str(),
                 );
@@ -810,7 +810,7 @@ where
                 //return;
             }
             CheckerResult::Warning => {
-                let mut warning = body_visitor.context.session.struct_span_warn(
+                let mut warning = body_visitor.context.session.dcx().struct_span_warn(
                     body_visitor.current_span,
                     format!("[MirChecker] Possible error: index out of bound").as_str(),
                 );
@@ -876,7 +876,7 @@ where
         match check_result {
             CheckerResult::Safe => (),
             CheckerResult::Unsafe => {
-                let error = body_visitor.context.session.struct_span_warn(
+                let error = body_visitor.context.session.dcx().struct_span_warn(
                     body_visitor.current_span,
                     format!("[MirChecker] Provably error: index out of bound",).as_str(),
                 );
@@ -884,7 +884,7 @@ where
                 return;
             }
             CheckerResult::Warning => {
-                let warning = body_visitor.context.session.struct_span_warn(
+                let warning = body_visitor.context.session.dcx().struct_span_warn(
                     body_visitor.current_span,
                     format!("[MirChecker] Possible error: index out of bound").as_str(),
                 );

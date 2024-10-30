@@ -32,13 +32,13 @@ use std::convert::TryFrom;
 use std::rc::Rc;
 
 /// A wto visitor used to analyze a function
-pub struct WtoFixPointIterator<'tcx, 'a, 'compiler, DomainType>
+pub struct WtoFixPointIterator<'tcx, 'a, 'compilation, DomainType>
 where
     DomainType: ApronDomainType,
     ApronAbstractDomain<DomainType>: GetManagerTrait,
 {
     // Global context
-    pub context: &'a mut GlobalContext<'tcx, 'compiler>,
+    pub context: &'a mut GlobalContext<'tcx, 'compilation>,
 
     // The current function's DefId
     pub def_id: DefId,
@@ -68,7 +68,7 @@ where
     pub type_visitor: TypeVisitor<'tcx>,
 
     // Helper struct to store information about the current crate
-    pub crate_context: CrateContext<'compiler, 'tcx>,
+    pub crate_context: CrateContext<'compilation, 'tcx>,
 
     // For each heap allocation site, we maintain an address
     // Caveat: we assume each location only allocates once
@@ -101,10 +101,10 @@ where
     pub z3_solver: Z3Solver,
 
     // Buffered diagnostics
-    pub buffered_diagnostics: Vec<Diagnostic<'compiler>>,
+    pub buffered_diagnostics: Vec<Diagnostic<'compilation>>,
 }
 
-impl<'tcx, 'a, 'compiler, DomainType> WtoFixPointIterator<'tcx, 'a, 'compiler, DomainType>
+impl<'tcx, 'a, 'compilation, DomainType> WtoFixPointIterator<'tcx, 'a, 'compilation, DomainType>
 where
     DomainType: ApronDomainType,
     ApronAbstractDomain<DomainType>: GetManagerTrait,
@@ -114,7 +114,7 @@ where
 
     /// Create a new w.t.o visitor for a given w.t.o and its initial state
     pub fn new(
-        context: &'a mut GlobalContext<'tcx, 'compiler>,
+        context: &'a mut GlobalContext<'tcx, 'compilation>,
         def_id: DefId,
         init_state: AbstractDomain<DomainType>,
         fresh_variable_offset: usize,
@@ -826,7 +826,7 @@ where
 
     pub fn emit_diagnostic(
         &mut self,
-        mut diagnostic_builder: DiagnosticBuilder<'compiler>,
+        mut diagnostic_builder: DiagnosticBuilder<'compilation, ()>,
         is_memory_safety: bool,
         cause: DiagnosticCause,
     ) {
@@ -956,8 +956,8 @@ where
 }
 
 /// Implement `visit_vertex` and `visit_circle`
-impl<'tcx, 'a, 'compiler, DomainType> WtoVisitor
-    for WtoFixPointIterator<'tcx, 'a, 'compiler, DomainType>
+impl<'tcx, 'a, 'compilation, DomainType> WtoVisitor
+    for WtoFixPointIterator<'tcx, 'a, 'compilation, DomainType>
 where
     DomainType: ApronDomainType,
     ApronAbstractDomain<DomainType>: GetManagerTrait,

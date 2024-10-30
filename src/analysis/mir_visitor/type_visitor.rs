@@ -24,6 +24,7 @@ use rustc_middle::ty::{
     FnSig, GenericArg, GenericArgKind, GenericArgs, GenericArgsRef, ParamTy, Ty, TyCtxt, TyKind,
     TypeAndMut,
 };
+use rustc_target::abi::FieldIdx;
 
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter, Result};
@@ -63,7 +64,7 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
     /// If the type is not a collection, it returns one.
     pub fn get_elem_type_size(&self, ty: Ty<'tcx>) -> u64 {
         match ty.kind() {
-            TyKind::Array(ty, _) | TyKind::Slice(ty) => self.get_type_size(ty),
+            TyKind::Array(ty, _) | TyKind::Slice(ty) => self.get_type_size(*ty),
             TyKind::RawPtr(t) => self.get_type_size(t.ty),
             _ => 1,
         }
@@ -72,11 +73,29 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
     /// Returns a parameter environment for the current function.
     pub fn get_param_env(&self) -> rustc_middle::ty::ParamEnv<'tcx> {
         let env_def_id = if self.tcx.is_closure(self.def_id) {
-            self.tcx.closure_base_def_id(self.def_id)
+            self.tcx.typeck_root_def_id(self.def_id)
         } else {
             self.def_id
         };
         self.tcx.param_env(env_def_id)
+    }
+
+    pub fn get_field_type(
+        &self,
+        def: &'tcx AdtDef,
+        args: GenericArgsRef<'tcx>,
+        ordinal: usize,
+    ) -> Ty<'tcx> {
+        for variant in def.variants().iter() {
+            if ordinal < variant.fields.len() {
+                let field = &variant.fields[ordinal.into()];
+                let ft = field.ty(self.tcx, args);
+                trace!("field {:?} type is {:?}", ordinal, ft);
+                return ft;
+            }
+        }
+        debug!("adt def does not have a field with ordinal {}", ordinal);
+        self.tcx.types.never
     }
 
     /// This is a hacky and brittle way to navigate the Rust compiler's type system.
@@ -87,7 +106,7 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
         current_span: rustc_span::Span,
     ) -> Ty<'tcx> {
         if let Some(ty) = self.path_ty_cache.get(path) {
-            return ty;
+            return *ty;
         }
         match &path.value {
             PathEnum::LocalVariable { ordinal } => {
@@ -129,25 +148,27 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
                     PathSelector::Field(ordinal) => {
                         let bt = Self::get_dereferenced_type(t);
                         match &bt.kind() {
-                            TyKind::Adt(AdtDef { variants, .. }, substs) => {
-                                if !is_union(bt) {
-                                    if let Some(variant_index) = variants.last() {
-                                        let variant = &variants[variant_index];
-                                        if *ordinal < variant.fields.len() {
-                                            let field = &variant.fields[*ordinal];
-                                            return field.ty(self.tcx, substs);
-                                        }
-                                    }
-                                }
+                            TyKind::Adt(def, args) => {
+                                return self.get_field_type(def, args, *ordinal);
                             }
-                            TyKind::Closure(.., subs) => {
-                                if *ordinal + 4 < subs.len() {
-                                    return subs.as_ref()[*ordinal + 4].expect_ty();
+                            TyKind::Closure(def_id, args) => {
+                                let closure_substs = args.as_closure();
+                                if closure_substs.is_valid() {
+                                    return *closure_substs
+                                        .upvar_tys()
+                                        .get(*ordinal)
+                                        .unwrap_or_else(|| {
+                                            info!(
+                                                "closure field not found {:?} {:?}",
+                                                def_id, ordinal
+                                            );
+                                            &self.tcx.types.never
+                                        });
                                 }
                             }
                             TyKind::Tuple(types) => {
-                                if let Some(gen_arg) = types.get(*ordinal as usize) {
-                                    return gen_arg.expect_ty();
+                                if let Some(ty) = types.get(*ordinal) {
+                                    return *ty;
                                 }
                             }
                             _ => (),
@@ -184,7 +205,7 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
                     // }
                     PathSelector::Index(_) => match &t.kind() {
                         TyKind::Array(elem_ty, _) | TyKind::Slice(elem_ty) => {
-                            return elem_ty;
+                            return *elem_ty;
                         }
                         _ => (),
                     },
@@ -198,7 +219,7 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
             }
             PathEnum::StaticVariable { def_id, .. } => {
                 if let Some(def_id) = def_id {
-                    return self.tcx.type_of(*def_id);
+                    return self.tcx.type_of(*def_id).skip_binder();
                 }
                 info!("path.value is {:?}", path.value);
                 self.tcx.types.unit
@@ -235,7 +256,7 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
         // as well. This applies recursively. Note that a child cannot mask the
         // generic parameters of its parent with one of its own, so each parameter
         // definition in this iteration will have a unique name.
-        InternalSubsts::for_item(self.tcx, def_id, |param_def, _| {
+        GenericArgs::for_item(self.tcx, def_id, |param_def, _| {
             if let Some(gen_arg) = generic_args.get(param_def.index as usize) {
                 if let GenericArgKind::Type(ty) = gen_arg.unpack() {
                     let specialized_gen_arg_ty =
@@ -253,9 +274,9 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
         // Add "Self" -> actual_argument_types[0]
         if let Some(self_ty) = actual_argument_types.get(0) {
             let self_ty = if let TyKind::Ref(_, ty, _) = self_ty.kind() {
-                ty
+                *ty
             } else {
-                self_ty
+                *self_ty
             };
             let self_sym = rustc_span::Symbol::intern("Self");
             map.entry(self_sym).or_insert(self_ty);
@@ -301,8 +322,9 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
             TyKind::Ref(region, ty, mutbl) => {
                 if let TyKind::Param(t_par) = ty.kind() {
                     if t_par.name.as_str() == "Self" && !self.actual_argument_types.is_empty() {
-                        return self.tcx.mk_ref(
-                            region,
+                        return Ty::new_ref(
+                            self.tcx,
+                            *region,
                             rustc_middle::ty::TypeAndMut {
                                 ty: self.actual_argument_types[0],
                                 mutbl: *mutbl,
@@ -338,7 +360,7 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
                         unreachable!();
                     }
                 },
-                mir::ProjectionElem::Field(_, ty) => ty,
+                mir::ProjectionElem::Field(_, ty) => *ty,
                 mir::ProjectionElem::Index(_)
                 | mir::ProjectionElem::ConstantIndex { .. }
                 | mir::ProjectionElem::Subslice { .. } => match &base_ty.kind() {
@@ -368,6 +390,18 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
         }
     }
 
+    pub fn specialize_generic_args(
+        &self,
+        args: GenericArgsRef<'tcx>,
+        map: &Option<HashMap<rustc_span::Symbol, Ty<'tcx>>>,
+    ) -> GenericArgsRef<'tcx> {
+        let specialized_generic_args: Vec<GenericArg<'_>> = args
+            .iter()
+            .map(|gen_arg| self.specialize_generic_argument(gen_arg, map))
+            .collect();
+        self.tcx.mk_args(&specialized_generic_args)
+    }
+
     fn specialize_generic_argument(
         &self,
         gen_arg: GenericArg<'tcx>,
@@ -384,42 +418,99 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
         gen_arg_type: Ty<'tcx>,
         map: &Option<HashMap<rustc_span::Symbol, Ty<'tcx>>>,
     ) -> Ty<'tcx> {
+        // The projection of an associated type. For example,
+        // `<T as Trait<..>>::N`.
+        if let TyKind::Alias(rustc_middle::ty::Projection, projection) = gen_arg_type.kind() {
+            let specialized_substs = self.specialize_generic_args(projection.args, map);
+            let item_def_id = projection.def_id;
+            return if utils::are_concrete(specialized_substs) {
+                let param_env = self
+                    .tcx
+                    .param_env(self.tcx.associated_item(item_def_id).container_id(self.tcx));
+                if let Ok(Some(instance)) = rustc_middle::ty::Instance::resolve(
+                    self.tcx,
+                    param_env,
+                    item_def_id,
+                    specialized_substs,
+                ) {
+                    let instance_item_def_id = instance.def.def_id();
+                    if item_def_id == instance_item_def_id {
+                        return Ty::new_projection(self.tcx, projection.def_id, specialized_substs);
+                    }
+                    let item_type = self.tcx.type_of(instance_item_def_id).skip_binder();
+                    let map =
+                        self.get_generic_arguments_map(instance_item_def_id, instance.args, &[]);
+                    if item_type == gen_arg_type && map.is_none() {
+                        // Can happen if the projection just adds a life time
+                        item_type
+                    } else {
+                        self.specialize_generic_argument_type(item_type, &map)
+                    }
+                } else {
+                    let projection_trait = Some(self.tcx.parent(item_def_id));
+                    if projection_trait == self.tcx.lang_items().pointee_trait() {
+                        // assume!(!specialized_substs.is_empty());
+                        if let GenericArgKind::Type(ty) = specialized_substs[0].unpack() {
+                            return ty.ptr_metadata_ty(self.tcx, |ty| ty).0;
+                        }
+                    } else if projection_trait == self.tcx.lang_items().discriminant_kind_trait() {
+                        // assume!(!specialized_substs.is_empty());
+                        if let GenericArgKind::Type(enum_ty) = specialized_substs[0].unpack() {
+                            return enum_ty.discriminant_ty(self.tcx);
+                        }
+                    }
+                    debug!("could not resolve an associated type with concrete type arguments");
+                    gen_arg_type
+                }
+            } else {
+                Ty::new_projection(self.tcx, projection.def_id, specialized_substs)
+            };
+        }
+
         if map.is_none() {
             return gen_arg_type;
         }
         match gen_arg_type.kind() {
-            TyKind::Adt(def, substs) => self.tcx.mk_adt(def, self.specialize_substs(substs, map)),
+            TyKind::Adt(def, args) => {
+                Ty::new_adt(self.tcx, *def, self.specialize_generic_args(args, map))
+            }
             TyKind::Array(elem_ty, len) => {
-                let specialized_elem_ty = self.specialize_generic_argument_type(elem_ty, map);
-                self.tcx.mk_ty(TyKind::Array(specialized_elem_ty, len))
+                let specialized_elem_ty = self.specialize_generic_argument_type(*elem_ty, map);
+                // let specialized_len = self.specialize_const(*len, map);
+                self.tcx
+                    .mk_ty_from_kind(TyKind::Array(specialized_elem_ty, *len))
             }
             TyKind::Slice(elem_ty) => {
-                let specialized_elem_ty = self.specialize_generic_argument_type(elem_ty, map);
-                self.tcx.mk_slice(specialized_elem_ty)
+                let specialized_elem_ty = self.specialize_generic_argument_type(*elem_ty, map);
+                Ty::new_slice(self.tcx, specialized_elem_ty)
             }
             TyKind::RawPtr(rustc_middle::ty::TypeAndMut { ty, mutbl }) => {
-                let specialized_ty = self.specialize_generic_argument_type(ty, map);
-                self.tcx.mk_ptr(rustc_middle::ty::TypeAndMut {
-                    ty: specialized_ty,
-                    mutbl: *mutbl,
-                })
-            }
-            TyKind::Ref(region, ty, mutbl) => {
-                let specialized_ty = self.specialize_generic_argument_type(ty, map);
-                self.tcx.mk_ref(
-                    region,
+                let specialized_ty = self.specialize_generic_argument_type(*ty, map);
+                Ty::new_ptr(
+                    self.tcx,
                     rustc_middle::ty::TypeAndMut {
                         ty: specialized_ty,
                         mutbl: *mutbl,
                     },
                 )
             }
-            TyKind::FnDef(def_id, substs) => self
-                .tcx
-                .mk_fn_def(*def_id, self.specialize_substs(substs, map)),
+            TyKind::Ref(region, ty, mutbl) => {
+                let specialized_ty = self.specialize_generic_argument_type(*ty, map);
+                Ty::new_ref(
+                    self.tcx,
+                    *region,
+                    rustc_middle::ty::TypeAndMut {
+                        ty: specialized_ty,
+                        mutbl: *mutbl,
+                    },
+                )
+            }
+            TyKind::FnDef(def_id, args) => {
+                Ty::new_fn_def(self.tcx, *def_id, self.specialize_generic_args(args, map))
+            }
             TyKind::FnPtr(fn_sig) => {
                 let map_fn_sig = |fn_sig: FnSig<'tcx>| {
-                    let specialized_inputs_and_output = self.tcx.mk_type_list(
+                    let specialized_inputs_and_output = self.tcx.mk_type_list_from_iter(
                         fn_sig
                             .inputs_and_output
                             .iter()
@@ -433,102 +524,124 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
                     }
                 };
                 let specialized_fn_sig = fn_sig.map_bound(map_fn_sig);
-                self.tcx.mk_fn_ptr(specialized_fn_sig)
+                Ty::new_fn_ptr(self.tcx, specialized_fn_sig)
             }
-            TyKind::Dynamic(predicates, region) => {
-                let map_predicates = |predicates: &rustc_middle::ty::List<
-                    Binder<ExistentialPredicate<'tcx>>,
-                >| {
-                    self.tcx
-                        .mk_poly_existential_predicates(predicates.iter().map(
-                            |pred: Binder<ExistentialPredicate<'tcx>>| match pred.skip_binder() {
+            TyKind::Dynamic(predicates, region, kind) => {
+                let specialized_predicates = predicates.iter().map(
+                    |bound_pred: rustc_middle::ty::Binder<'_, ExistentialPredicate<'tcx>>| {
+                        bound_pred.map_bound(|pred| match pred {
+                            ExistentialPredicate::Trait(ExistentialTraitRef { def_id, args }) => {
                                 ExistentialPredicate::Trait(ExistentialTraitRef {
                                     def_id,
-                                    substs,
-                                }) => {
-                                    Binder::bind(ExistentialPredicate::Trait(ExistentialTraitRef {
+                                    args: self.specialize_generic_args(args, map),
+                                })
+                            }
+                            ExistentialPredicate::Projection(ExistentialProjection {
+                                def_id,
+                                args,
+                                term,
+                            }) => {
+                                if let Some(ty) = term.ty() {
+                                    ExistentialPredicate::Projection(ExistentialProjection {
                                         def_id,
-                                        substs: self.specialize_substs(substs, map),
-                                    }))
+                                        args: self.specialize_generic_args(args, map),
+                                        term: self.specialize_generic_argument_type(ty, map).into(),
+                                    })
+                                } else {
+                                    ExistentialPredicate::Projection(ExistentialProjection {
+                                        def_id,
+                                        args: self.specialize_generic_args(args, map),
+                                        term,
+                                    })
                                 }
-                                ExistentialPredicate::Projection(ExistentialProjection {
-                                    item_def_id,
-                                    substs,
-                                    ty,
-                                }) => Binder::bind(ExistentialPredicate::Projection(
-                                    ExistentialProjection {
-                                        item_def_id,
-                                        substs: self.specialize_substs(substs, map),
-                                        ty: self.specialize_generic_argument_type(ty, map),
-                                    },
-                                )),
-                                ExistentialPredicate::AutoTrait(_) => pred,
-                            },
-                        ))
-                };
-                let specialized_predicates = map_predicates(predicates);
-                // let specialized_predicates = predicates.map_bound(map_predicates);
-                self.tcx.mk_dynamic(specialized_predicates, region)
+                            }
+                            ExistentialPredicate::AutoTrait(_) => pred,
+                        })
+                    },
+                );
+                Ty::new_dynamic(
+                    self.tcx,
+                    self.tcx
+                        .mk_poly_existential_predicates_from_iter(specialized_predicates),
+                    *region,
+                    *kind,
+                )
             }
-            TyKind::Closure(def_id, substs) => self
-                .tcx
-                .mk_closure(*def_id, self.specialize_substs(substs, map)),
-            TyKind::Generator(def_id, substs, movability) => {
-                self.tcx
-                    .mk_generator(*def_id, self.specialize_substs(substs, map), *movability)
+            TyKind::Closure(def_id, args) => {
+                Ty::new_closure(self.tcx, *def_id, self.specialize_generic_args(args, map))
             }
-            TyKind::GeneratorWitness(bound_types) => {
-                let map_types = |types: &rustc_middle::ty::List<Ty<'tcx>>| {
-                    self.tcx.mk_type_list(
-                        types
-                            .iter()
-                            .map(|ty| self.specialize_generic_argument_type(ty, map)),
-                    )
-                };
-                let specialized_types = bound_types.map_bound(map_types);
-                self.tcx.mk_generator_witness(specialized_types)
+
+            TyKind::Coroutine(def_id, args) => {
+                Ty::new_coroutine(self.tcx, *def_id, self.specialize_generic_args(args, map))
             }
-            TyKind::Tuple(substs) => self.tcx.mk_tup(
-                self.specialize_substs(substs, map)
+
+            TyKind::CoroutineWitness(def_id, args) => {
+                let specialized_types = self.specialize_generic_args(args, map);
+                Ty::new_coroutine_witness(self.tcx, *def_id, specialized_types)
+            }
+
+            // TyKind::Generator(def_id, substs, movability) => {
+            //     self.tcx
+            //         .mk_generator(*def_id, self.specialize_substs(substs, map), *movability)
+            // }
+            // TyKind::GeneratorWitness(bound_types) => {
+            //     let map_types = |types: &rustc_middle::ty::List<Ty<'tcx>>| {
+            //         self.tcx.mk_type_list(
+            //             types
+            //                 .iter()
+            //                 .map(|ty| self.specialize_generic_argument_type(ty, map)),
+            //         )
+            //     };
+            //     let specialized_types = bound_types.map_bound(map_types);
+            //     self.tcx.mk_generator_witness(specialized_types)
+            // }
+            TyKind::Tuple(types) => Ty::new_tup_from_iter(
+                self.tcx,
+                types
                     .iter()
-                    .map(|gen_arg| gen_arg.expect_ty()),
+                    .map(|ty| self.specialize_generic_argument_type(ty, map)),
             ),
+            TyKind::Alias(
+                rustc_middle::ty::Opaque,
+                rustc_middle::ty::AliasTy { def_id, args, .. },
+            ) => Ty::new_opaque(self.tcx, *def_id, self.specialize_generic_args(args, map)),
+
             // The projection of an associated type. For example,
             // `<T as Trait<..>>::N`.
-            TyKind::Projection(projection) => {
-                let specialized_substs = self.specialize_substs(projection.substs, map);
-                let item_def_id = projection.item_def_id;
-                if utils::are_concrete(specialized_substs) {
-                    let param_env = self
-                        .tcx
-                        .param_env(self.tcx.associated_item(item_def_id).container.id());
-                    let specialized_substs = self.specialize_substs(projection.substs, map);
-                    if let Ok(Some(instance)) = rustc_middle::ty::Instance::resolve(
-                        self.tcx,
-                        param_env,
-                        item_def_id,
-                        specialized_substs,
-                    ) {
-                        let item_def_id = instance.def.def_id();
-                        let item_type = self.tcx.type_of(item_def_id);
-                        if item_type == gen_arg_type {
-                            // Can happen if the projection just adds a life time
-                            item_type
-                        } else {
-                            self.specialize_generic_argument_type(item_type, map)
-                        }
-                    } else {
-                        debug!("could not resolve an associated type with concrete type arguments");
-                        gen_arg_type
-                    }
-                } else {
-                    self.tcx
-                        .mk_projection(projection.item_def_id, specialized_substs)
-                }
-            }
-            TyKind::Opaque(def_id, substs) => self
-                .tcx
-                .mk_opaque(*def_id, self.specialize_substs(substs, map)),
+            // TyKind::Projection(projection) => {
+            //     let specialized_substs = self.specialize_substs(projection.substs, map);
+            //     let item_def_id = projection.item_def_id;
+            //     if utils::are_concrete(specialized_substs) {
+            //         let param_env = self
+            //             .tcx
+            //             .param_env(self.tcx.associated_item(item_def_id).container.id());
+            //         let specialized_substs = self.specialize_substs(projection.substs, map);
+            //         if let Ok(Some(instance)) = rustc_middle::ty::Instance::resolve(
+            //             self.tcx,
+            //             param_env,
+            //             item_def_id,
+            //             specialized_substs,
+            //         ) {
+            //             let item_def_id = instance.def.def_id();
+            //             let item_type = self.tcx.type_of(item_def_id);
+            //             if item_type == gen_arg_type {
+            //                 // Can happen if the projection just adds a life time
+            //                 item_type
+            //             } else {
+            //                 self.specialize_generic_argument_type(item_type, map)
+            //             }
+            //         } else {
+            //             debug!("could not resolve an associated type with concrete type arguments");
+            //             gen_arg_type
+            //         }
+            //     } else {
+            //         self.tcx
+            //             .mk_projection(projection.item_def_id, specialized_substs)
+            //     }
+            // }
+            // TyKind::Opaque(def_id, substs) => self
+            //     .tcx
+            //     .mk_opaque(*def_id, self.specialize_substs(substs, map)),
             TyKind::Param(ParamTy { name, .. }) => {
                 if let Some(ty) = map.as_ref().unwrap().get(&name) {
                     return *ty;
@@ -539,18 +652,6 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
         }
     }
 
-    pub fn specialize_substs(
-        &self,
-        substs: GenericArgsRef<'tcx>,
-        map: &Option<HashMap<rustc_span::Symbol, Ty<'tcx>>>,
-    ) -> GenericArgsRef<'tcx> {
-        let specialized_generic_args: Vec<GenericArg<'_>> = substs
-            .iter()
-            .map(|gen_arg| self.specialize_generic_argument(gen_arg, &map))
-            .collect();
-        self.tcx.intern_substs(&specialized_generic_args)
-    }
-
     // TODO: this is only used in promote constant, remove it if not necessary
     pub fn starts_with_slice_pointer(&self, ty_kind: &TyKind<'tcx>) -> bool {
         match ty_kind {
@@ -558,10 +659,11 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
                 // Pointers to sized arrays are thin pointers.
                 matches!(target.kind(), TyKind::Slice(..))
             }
-            TyKind::Adt(def, substs) => {
-                for v in def.variants.iter() {
-                    if let Some(field0) = v.fields.get(0) {
-                        let field0_ty = field0.ty(self.tcx, substs);
+            TyKind::Adt(def, args) => {
+                for v in def.variants().iter() {
+                    // return v;
+                    if let Some(field0) = v.fields.get(FieldIdx::from_usize(0)) {
+                        let field0_ty = field0.ty(self.tcx, args);
                         if self.starts_with_slice_pointer(&field0_ty.kind()) {
                             return true;
                         }
@@ -569,8 +671,8 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
                 }
                 false
             }
-            TyKind::Tuple(substs) => {
-                if let Some(field0_ty) = substs.iter().map(|s| s.expect_ty()).next() {
+            TyKind::Tuple(types) => {
+                if let Some(field0_ty) = types.iter().next() {
                     self.starts_with_slice_pointer(field0_ty.kind())
                 } else {
                     false
@@ -585,10 +687,10 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
 pub fn get_element_type(ty: Ty<'_>) -> Ty<'_> {
     match &ty.kind() {
         TyKind::Array(t, _) => *t,
-        TyKind::Ref(_, t, _) => match &t.kind() {
+        TyKind::Ref(_, t, _) => match t.kind() {
             TyKind::Array(t, _) => *t,
             TyKind::Slice(t) => *t,
-            _ => t,
+            _ => *t,
         },
         TyKind::Slice(t) => *t,
         _ => ty,
@@ -606,7 +708,7 @@ pub fn is_union(ty: Ty<'_>) -> bool {
 
 pub fn get_target_type(ty: Ty<'_>) -> Ty<'_> {
     match ty.kind() {
-        TyKind::RawPtr(TypeAndMut { ty: t, .. }) | TyKind::Ref(_, t, _) => t,
+        TyKind::RawPtr(TypeAndMut { ty: t, .. }) | TyKind::Ref(_, t, _) => *t,
         _ => ty,
     }
 }

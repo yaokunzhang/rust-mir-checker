@@ -22,6 +22,7 @@ use std::collections::HashSet;
 use std::fmt::{Debug, Formatter, Result};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
+use rustc_target::abi::FieldIdx;
 
 /// Represent a memory location as a path
 #[derive(Clone, Eq, Ord, PartialOrd)]
@@ -351,15 +352,15 @@ impl Path {
             result_rustc_type
         );
         match result_rustc_type.kind() {
-            TyKind::Adt(def, substs) => {
+            TyKind::Adt(def, args) => {
                 if def.is_enum() {
                     let path0 = Path::new_discriminant(path.clone());
                     return Some(path0);
                 }
                 let path0 = Path::new_field(path.clone(), 0);
-                for v in def.variants.iter() {
-                    if let Some(field0) = v.fields.get(0) {
-                        let field0_ty = field0.ty(tcx, substs);
+                for v in def.variants().iter() {
+                    if let Some(field0) = v.fields.get(FieldIdx::from_usize(0)) {
+                        let field0_ty = field0.ty(tcx, args);
                         let result = Self::get_path_to_field_at_offset_0(
                             tcx, // environment,
                             &path0, field0_ty,
@@ -371,8 +372,8 @@ impl Path {
                 }
                 None
             }
-            TyKind::Tuple(substs) => {
-                if let Some(field0_ty) = substs.iter().map(|s| s.expect_ty()).next() {
+            TyKind::Tuple(types) => {
+                if let Some(field0_ty) = types.iter().next() {
                     let path0 = Path::new_field(path.clone(), 0);
                     return Self::get_path_to_field_at_offset_0(
                         tcx, // environment,
