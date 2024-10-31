@@ -37,6 +37,7 @@ pub enum KnownNames {
 
     PtrOffset,
     PtrByteOffset,
+    StdSliceIndexGetUnchecked,
     StdSliceIndexGetUncheckedMut,
 }
 
@@ -141,6 +142,7 @@ impl KnownNamesCache {
             get_path_data_elem_name(def_path_data_iter.next())
                 .map(|n| match n.as_str().deref() {
                     "get_unchecked_mut" => KnownNames::StdSliceIndexGetUncheckedMut,
+                    "get_unchecked" => KnownNames::StdSliceIndexGetUnchecked,
                     _ => KnownNames::None,
                 })
                 .unwrap_or(KnownNames::None)

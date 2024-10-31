@@ -331,9 +331,12 @@ where
             KnownNames::PtrByteOffset => {
                 return self.handle_byte_offset();
             }
-            // KnownNames::StdSliceIndexGetUncheckedMut => {
-            //     return  true;
-            // }
+            KnownNames::StdSliceIndexGetUncheckedMut => {
+                return self.handle_get_unchecked_mut();
+            }
+            KnownNames::StdSliceIndexGetUnchecked => {
+                return self.handle_get_unchecked();
+            }
             KnownNames::StdFrom | KnownNames::StdAsMutPtr => {
                 self.handle_from();
                 return true;
@@ -718,6 +721,155 @@ where
                 ),
             },
             2,
+        );
+        let check_result = assert_checker.check_assert_condition(overflow_safe_cond, true, &state);
+        //  TODO: 相同Span只能发出一次诊断，未发出的诊断会由编译器进行报错。
+        match check_result {
+            CheckerResult::Safe => (),
+            CheckerResult::Unsafe => {
+                let mut error = body_visitor.context.session.struct_span_warn(
+                    body_visitor.current_span,
+                    format!("[MirChecker] Provably error: index out of bound",).as_str(),
+                );
+                error.emit();
+                // body_visitor.emit_diagnostic(error, false, DiagnosticCause::Index);
+                //return;
+            }
+            CheckerResult::Warning => {
+                let mut warning = body_visitor.context.session.struct_span_warn(
+                    body_visitor.current_span,
+                    format!("[MirChecker] Possible error: index out of bound").as_str(),
+                );
+                warning.emit();
+                // body_visitor.emit_diagnostic(warning, false, DiagnosticCause::Index);
+            }
+        }
+
+        // TODO:这里采用保守方式。
+        let result = self.try_to_inline_special_function();
+        if !result.is_bottom() {
+            if let Some(target_path) = destination_path {
+                // let target_path = self.block_visitor.visit_place(place);
+                self.block_visitor
+                    .body_visitor
+                    .state
+                    .update_value_at(target_path.clone(), result);
+                // let exit_condition = self.block_visitor.state.entry_condition.clone();
+                // self.block_visitor
+                //     .state
+                //     .exit_conditions
+                //     .insert(*target, exit_condition);
+                return true;
+            }
+        }
+        return false;
+    }
+
+
+    fn handle_get_unchecked(&mut self) -> bool {
+        assert!(self.actual_args.len() == 2);
+        let destination_path = if let Some(dest) = self.destination {
+            Some(self.block_visitor.get_path_for_place(&dest.0))
+        } else {
+            None
+        };
+        assert!(destination_path.is_some());
+        let state = self.block_visitor.state().clone();
+        let body_visitor = &mut self.block_visitor.body_visitor;
+
+        let array = &self.actual_args[1].0;
+        let array_len = Path::new_length(array.clone()).refine_paths(&body_visitor.state);
+        let array_len_val = SymbolicValue::make_from(
+            Expression::Variable {
+                path: array_len.clone(),
+                var_type: ExpressionType::Usize,
+            },
+            1,
+        );
+        let index_val = &self.actual_args[0].1;
+        let result = destination_path.as_ref().unwrap();
+
+        let assert_checker = AssertionChecker::new(body_visitor);
+        let overflow_safe_cond = SymbolicValue::make_from(
+            Expression::LessThan {
+                left: index_val.clone(),
+                right: array_len_val,
+            },
+            1,
+        );
+        let check_result = assert_checker.check_assert_condition(overflow_safe_cond, true, &state);
+        //  TODO: 相同Span只能发出一次诊断，未发出的诊断会由编译器进行报错。
+        match check_result {
+            CheckerResult::Safe => (),
+            CheckerResult::Unsafe => {
+                let mut error = body_visitor.context.session.struct_span_warn(
+                    body_visitor.current_span,
+                    format!("[MirChecker] Provably error: index out of bound",).as_str(),
+                );
+                error.emit();
+                // body_visitor.emit_diagnostic(error, false, DiagnosticCause::Index);
+                //return;
+            }
+            CheckerResult::Warning => {
+                let mut warning = body_visitor.context.session.struct_span_warn(
+                    body_visitor.current_span,
+                    format!("[MirChecker] Possible error: index out of bound").as_str(),
+                );
+                warning.emit();
+                // body_visitor.emit_diagnostic(warning, false, DiagnosticCause::Index);
+            }
+        }
+
+        // TODO:这里采用保守方式。
+        let result = self.try_to_inline_special_function();
+        if !result.is_bottom() {
+            if let Some(target_path) = destination_path {
+                // let target_path = self.block_visitor.visit_place(place);
+                self.block_visitor
+                    .body_visitor
+                    .state
+                    .update_value_at(target_path.clone(), result);
+                // let exit_condition = self.block_visitor.state.entry_condition.clone();
+                // self.block_visitor
+                //     .state
+                //     .exit_conditions
+                //     .insert(*target, exit_condition);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    fn handle_get_unchecked_mut(&mut self) -> bool {
+        assert!(self.actual_args.len() == 2);
+        let destination_path = if let Some(dest) = self.destination {
+            Some(self.block_visitor.get_path_for_place(&dest.0))
+        } else {
+            None
+        };
+        assert!(destination_path.is_some());
+        let state = self.block_visitor.state().clone();
+        let body_visitor = &mut self.block_visitor.body_visitor;
+
+        let array = &self.actual_args[1].0;
+        let array_len = Path::new_length(array.clone()).refine_paths(&body_visitor.state);
+        let array_len_val = SymbolicValue::make_from(
+            Expression::Variable {
+                path: array_len.clone(),
+                var_type: ExpressionType::Usize,
+            },
+            1,
+        );
+        let index_val = &self.actual_args[0].1;
+        let result = destination_path.as_ref().unwrap();
+
+        let assert_checker = AssertionChecker::new(body_visitor);
+        let overflow_safe_cond = SymbolicValue::make_from(
+            Expression::LessThan {
+                left: index_val.clone(),
+                right: array_len_val,
+            },
+            1,
         );
         let check_result = assert_checker.check_assert_condition(overflow_safe_cond, true, &state);
         //  TODO: 相同Span只能发出一次诊断，未发出的诊断会由编译器进行报错。
