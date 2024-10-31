@@ -1,8 +1,7 @@
+#![allow(internal_features)]
 #![feature(rustc_private)]
 #![feature(box_patterns)]
 #![feature(core_intrinsics)]
-#![feature(rustc_box)]
-#![feature(vec_remove_item)]
 
 extern crate rustc_ast;
 extern crate rustc_data_structures;
