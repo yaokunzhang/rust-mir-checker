@@ -28,6 +28,7 @@ use crate::analysis::numerical::linear_constraint::LinearConstraintSystem;
 use crate::analysis::z3_solver::SmtResult;
 use rug::Integer;
 use rustc_hir::def_id::DefId;
+use rustc_index::{Idx, IndexVec};
 use rustc_middle::mir;
 use rustc_middle::mir::interpret::{alloc_range, GlobalAlloc, Scalar};
 use rustc_middle::mir::UnwindTerminateReason;
@@ -36,6 +37,8 @@ use rustc_middle::ty::layout::LayoutCx;
 use rustc_middle::ty::{
     Const, FloatTy, IntTy, ParamConst, ScalarInt, Ty, TyKind, UintTy, ValTree, VariantDef,
 };
+use rustc_target::abi::{FieldIdx, Primitive, TagEncoding, VariantIdx, Variants};
+
 use rustc_middle::ty::{GenericArg, GenericArgsRef};
 use rustc_span::Span;
 use std::borrow::Borrow;
@@ -358,7 +361,8 @@ where
             Ref(_, _, place) | AddressOf(_, place) | Len(place) | Discriminant(place) => {
                 Some(vec![place.local])
             }
-            BinaryOp(_, operand1, operand2) | CheckedBinaryOp(_, operand1, operand2) => {
+            BinaryOp(_, box (operand1, operand2))
+            | CheckedBinaryOp(_, box (operand1, operand2)) => {
                 let res1 = self.extract_local_from_operand(operand1);
                 let res2 = self.extract_local_from_operand(operand2);
                 match (res1, res2) {
@@ -371,6 +375,7 @@ where
                     _ => None,
                 }
             }
+
             Aggregate(_, vec_operand) => {
                 let mut res = Vec::new();
                 for operand in vec_operand {
@@ -1039,8 +1044,13 @@ where
                     rustc_middle::ty::AliasTy { def_id, .. },
                 ) => {
                     if let TyKind::Closure(def_id, generic_args)
-                    | TyKind::Coroutine(def_id, generic_args) =
-                        self.body_visitor.context.tcx.type_of(*def_id).skip_binder().kind()
+                    | TyKind::Coroutine(def_id, generic_args) = self
+                        .body_visitor
+                        .context
+                        .tcx
+                        .type_of(*def_id)
+                        .skip_binder()
+                        .kind()
                     {
                         let func_const =
                             self.visit_function_reference(*def_id, ty, Some(generic_args));
@@ -1176,11 +1186,7 @@ where
         _replace: bool,
     ) {
         // Test whether tainted variables reach the `Drop` terminator.
-        if self
-            .body_visitor
-            .tainted_variables
-            .contains(&place.local)
-        {
+        if self.body_visitor.tainted_variables.contains(&place.local) {
             let warning = self.body_visitor.context.session.dcx().struct_span_warn(
                 self.body_visitor.current_span,
                 format!(
@@ -1242,8 +1248,7 @@ where
                     self.body_visitor.current_span,
                     format!(
                         "[MirChecker] Possible error: double-free or use-after-free for {:?}",
-                        self.body_visitor
-                            .get_var_name(&mir::Operand::Move(*place))
+                        self.body_visitor.get_var_name(&mir::Operand::Move(*place))
                     )
                     .as_str(),
                 );
@@ -1257,7 +1262,7 @@ where
             }
         }
     }
-    
+
     /// Block ends with the call of a function.
     ///
     /// #Arguments
@@ -1314,10 +1319,10 @@ where
             .get(&callee_def_id)
             .expect("MIR should ensure this");
         // Try to specialize generic arguments
-        let callee_generic_arguments = self
-            .body_visitor
-            .type_visitor
-            .specialize_generic_args(generic_args, &self.body_visitor.type_visitor.generic_argument_map);
+        let callee_generic_arguments = self.body_visitor.type_visitor.specialize_generic_args(
+            generic_args,
+            &self.body_visitor.type_visitor.generic_argument_map,
+        );
         let actual_args: Vec<(Rc<Path>, Rc<SymbolicValue>)> = args
             .iter()
             .map(|arg| (self.get_operand_path(arg), self.visit_operand(arg)))
@@ -1359,7 +1364,7 @@ where
         let func_const = ConstantValue::Function(func_ref_to_call);
         let func_const_args = &self.get_function_constant_args(&actual_args);
 
-        let destination_path = self.get_path_for_place(&destination); 
+        let destination_path = self.get_path_for_place(&destination);
 
         debug!("actual_args: {:?}", actual_args);
         debug!("actual_argument_types: {:?}", actual_argument_types);
@@ -1512,15 +1517,23 @@ where
                         closure_ty,
                         &self.body_visitor.type_visitor.generic_argument_map,
                     );
-                if let TyKind::Opaque(def_id, substs) = specialized_closure_ty.kind() {
+                if let TyKind::Alias(
+                    rustc_middle::ty::Opaque,
+                    rustc_middle::ty::AliasTy { def_id, args, .. },
+                ) = specialized_closure_ty.kind()
+                {
+                    let args = self.body_visitor.type_visitor.specialize_generic_args(
+                        args,
+                        &self.body_visitor.type_visitor.generic_argument_map,
+                    );
                     self.body_visitor
                         .crate_context
                         .generic_args_cache
-                        .insert(*def_id, substs);
-                    let closure_ty = self.body_visitor.context.tcx.type_of(*def_id);
+                        .insert(*def_id, args);
+                    let closure_ty = self.body_visitor.context.tcx.type_of(*def_id).skip_binder();
                     let map = self.body_visitor.type_visitor.get_generic_arguments_map(
                         *def_id,
-                        substs,
+                        args,
                         &[],
                     );
                     specialized_closure_ty = self
@@ -1529,11 +1542,11 @@ where
                         .specialize_generic_argument_type(closure_ty, &map);
                 }
                 match specialized_closure_ty.kind() {
-                    TyKind::Closure(def_id, substs) | TyKind::FnDef(def_id, substs) => {
+                    TyKind::Closure(def_id, args) | TyKind::FnDef(def_id, args) => {
                         return extract_func_ref(self.visit_function_reference(
                             *def_id,
                             specialized_closure_ty,
-                            substs,
+                            Some(args),
                         ));
                     }
                     TyKind::Ref(_, ty, _) => {
@@ -1541,16 +1554,16 @@ where
                             .body_visitor
                             .type_visitor
                             .specialize_generic_argument_type(
-                                ty,
+                                *ty,
                                 &self.body_visitor.type_visitor.generic_argument_map,
                             );
-                        if let TyKind::Closure(def_id, substs) | TyKind::FnDef(def_id, substs) =
+                        if let TyKind::Closure(def_id, args) | TyKind::FnDef(def_id, args) =
                             specialized_closure_ty.kind()
                         {
                             return extract_func_ref(self.visit_function_reference(
                                 *def_id,
                                 specialized_closure_ty,
-                                substs,
+                                Some(args),
                             ));
                         }
                     }
@@ -1598,7 +1611,7 @@ where
             }
             mir::Rvalue::Repeat(operand, count) => {
                 debug!("Get RHS Rvalue: Repeat({:?}, {:?})", operand, count);
-                self.visit_repeat(path, operand, *count);
+                self.visit_repeat(path, operand, count);
             }
             mir::Rvalue::Ref(_, _, place) | mir::Rvalue::AddressOf(_, place) => {
                 debug!("Get RHS Rvalue: Ref/AddressOf({:?})", place);
@@ -1615,26 +1628,27 @@ where
                     "Get RHS Rvalue: Cast({:?}, {:?}, {:?})",
                     cast_kind, operand, ty
                 );
-                self.visit_cast(path, *cast_kind, operand, ty);
+                self.visit_cast(path, *cast_kind, operand, *ty);
             }
-            mir::Rvalue::BinaryOp(bin_op, left_operand, right_operand) => {
+            mir::Rvalue::BinaryOp(bin_op, box (left_operand, right_operand)) => {
                 debug!(
                     "Get RHS Rvalue: BinaryOp({:?}, {:?}, {:?})",
                     bin_op, left_operand, right_operand
                 );
                 self.visit_binary_op(path, *bin_op, left_operand, right_operand);
             }
-            mir::Rvalue::CheckedBinaryOp(bin_op, left_operand, right_operand) => {
+            mir::Rvalue::CheckedBinaryOp(bin_op, box (left_operand, right_operand)) => {
                 debug!(
                     "Get RHS Rvalue: CheckedBinaryOp({:?}, {:?}, {:?})",
                     bin_op, left_operand, right_operand
                 );
                 self.visit_checked_binary_op(path, *bin_op, left_operand, right_operand);
             }
+
             // E.g. NullaryOp(Box, [usize; 5])
             mir::Rvalue::NullaryOp(null_op, ty) => {
                 debug!("Get RHS Rvalue: NullaryOp({:?}, {:?})", null_op, ty);
-                self.visit_nullary_op(path, *null_op, ty);
+                self.visit_nullary_op(path, *null_op, *ty);
             }
             mir::Rvalue::UnaryOp(unary_op, operand) => {
                 debug!("Get RHS Rvalue: UnaryOp({:?}, {:?})", unary_op, operand);
@@ -1668,43 +1682,143 @@ where
     fn visit_aggregate(
         &mut self,
         path: Rc<Path>,
-        aggregate_kinds: &mir::AggregateKind<'tcx>,
-        operands: &[mir::Operand<'tcx>],
+        aggregate_kind: &mir::AggregateKind<'tcx>,
+        operands: &IndexVec<FieldIdx, mir::Operand<'tcx>>,
     ) {
-        assert!(matches!(aggregate_kinds, mir::AggregateKind::Array(..)));
-        let length_path = Path::new_length(path.clone()).refine_paths(&self.state());
-        let length_value = self.body_visitor.get_u128_const_val(operands.len() as u128);
-        self.body_visitor
-            .state
-            .update_value_at(length_path, length_value);
+        // assert!(matches!(aggregate_kind, mir::AggregateKind::Array(..)));
+        // let length_path = Path::new_length(path.clone()).refine_paths(&self.state());
+        // let length_value = self.body_visitor.get_u128_const_val(operands.len() as u128);
+        // self.body_visitor
+        //     .state
+        //     .update_value_at(length_path, length_value);
 
-        // Handle the list of operands
-        for (i, operand) in operands.iter().enumerate() {
-            let index_value = self.body_visitor.get_u128_const_val(i as u128);
-            let index_path = Path::new_index(path.clone(), index_value).refine_paths(&self.state());
-            self.visit_used_operand(index_path, operand);
+        // // Handle the list of operands
+        // for (i, operand) in operands.iter().enumerate() {
+        //     let index_value = self.body_visitor.get_u128_const_val(i as u128);
+        //     let index_path = Path::new_index(path.clone(), index_value).refine_paths(&self.state());
+        //     self.visit_used_operand(index_path, operand);
+        // }
+        match aggregate_kind {
+            mir::AggregateKind::Array(ty) => {
+                let length_path = Path::new_length(path.clone());
+                let length_value = self.body_visitor.get_u128_const_val(operands.len() as u128);
+                self.body_visitor
+                    .state
+                    .update_value_at(length_path, length_value);
+                for (i, operand) in operands.iter().enumerate() {
+                    let index_value = self.body_visitor.get_u128_const_val(i as u128);
+                    let index_path = Path::new_index(path.clone(), index_value);
+                    // self.type_visitor_mut()
+                    //     .set_path_rustc_type(index_path.clone(), *ty);
+                    self.visit_use(index_path, operand);
+                }
+            }
+            mir::AggregateKind::Tuple => {
+                let ty = self
+                    .body_visitor
+                    .type_visitor
+                    .get_path_rustc_type(&path, self.body_visitor.current_span);
+                let types = if let TyKind::Tuple(types) = ty.kind() {
+                    types.as_slice()
+                } else {
+                    &[]
+                };
+                for (i, operand) in operands.iter().enumerate() {
+                    let index_path = Path::new_field(path.clone(), i);
+                    // if let Some(ty) = types.get(i) {
+                    //     self.type_visitor_mut()
+                    //         .set_path_rustc_type(index_path.clone(), *ty);
+                    // };
+                    self.visit_use(index_path, operand);
+                }
+            }
+            mir::AggregateKind::Adt(def, variant_idx, args, _, case_index) => {
+                let mut path = path;
+                let adt_def = self.body_visitor.context.tcx.adt_def(def);
+                let variant_def = &adt_def.variants()[*variant_idx];
+                let adt_ty = self.body_visitor.context.tcx.type_of(def).skip_binder();
+                if adt_def.is_enum() {
+                    // let discr_path = Path::new_discriminant(path.clone());
+                    // let discr_ty = adt_ty.discriminant_ty(self.body_visitor.context.tcx);
+                    // let discr_bits =
+                    //     match adt_ty.discriminant_for_variant(self.body_visitor.context.tcx, *variant_idx) {
+                    //         Some(discr) => discr.val,
+                    //         None => variant_idx.as_usize() as u128,
+                    //     };
+                    // let val = self.get_int_const_val(discr_bits, discr_ty);
+                    // self.body_visitor.state.update_value_at(discr_path, val.clone());
+                    // let discr_name = variant_def.name.to_string();
+                    // path = Path::new_qualified(
+                    //     path,
+                    //     Rc::new(PathSelector::Downcast(
+                    //         Rc::from(discr_name),
+                    //         variant_idx.as_usize(),
+                    //         val,
+                    //     )),
+                    // );
+                } else if adt_def.is_union() {
+                    // let num_cases = variant_def.fields.len();
+                    // let case_index = case_index.unwrap_or(0usize.into());
+                    // let field_path = Path::new_union_field(path, case_index.into(), num_cases);
+                    // let field = &variant_def.fields[case_index];
+                    // let field_ty = field.ty(self.body_visitor.context.tcx, args);
+                    // // self.type_visitor_mut()
+                    // //     .set_path_rustc_type(field_path.clone(), field_ty);
+                    // self.visit_use(field_path, &operands[0usize.into()]);
+                    return;
+                }
+                if variant_def.fields.is_empty() {
+                    // self.body_visitor.state
+                    //     .update_value_at(Path::new_field(path.clone(), 0), Rc::new(BOTTOM));
+                }
+                for (i, field) in variant_def.fields.iter().enumerate() {
+                    let field_path = Path::new_field(path.clone(), i);
+                    let field_ty = field.ty(self.body_visitor.context.tcx, args);
+                    // self.type_visitor_mut()
+                    //     .set_path_rustc_type(field_path.clone(), field_ty);
+                    if let Some(operand) = operands.get(i.into()) {
+                        self.visit_use(field_path, operand);
+                    } else {
+                        debug!(
+                            "variant has more fields than was serialized {:?}",
+                            variant_def
+                        );
+                    }
+                }
+            }
+            mir::AggregateKind::Closure(def_id, args)
+            | mir::AggregateKind::Coroutine(def_id, args) => {
+                let ty = self.body_visitor.context.tcx.type_of(*def_id).skip_binder();
+                let func_const = self.visit_function_reference(*def_id, ty, Some(args));
+                let func_val = Rc::new(func_const.clone().into());
+                self.body_visitor.state.update_value_at(path.clone(), func_val);
+                for (i, operand) in operands.iter().enumerate() {
+                    let field_path = Path::new_field(path.clone(), i);
+                    self.visit_use(field_path, operand);
+                }
+            }
         }
     }
 
-    fn visit_used_operand(&mut self, target_path: Rc<Path>, operand: &mir::Operand<'tcx>) {
-        match operand {
-            mir::Operand::Copy(place) => {
-                self.visit_used_copy(target_path, place);
-            }
-            mir::Operand::Move(place) => {
-                self.visit_used_move(target_path, place);
-            }
-            mir::Operand::Constant(constant) => {
-                let mir::Constant {
-                    user_ty, literal, ..
-                } = constant.borrow();
-                let const_value = self.visit_constant(*user_ty, &literal);
-                self.body_visitor
-                    .state
-                    .update_value_at(target_path, const_value);
-            }
-        };
-    }
+    // fn visit_used_operand(&mut self, target_path: Rc<Path>, operand: &mir::Operand<'tcx>) {
+    //     match operand {
+    //         mir::Operand::Copy(place) => {
+    //             self.visit_used_copy(target_path, place);
+    //         }
+    //         mir::Operand::Move(place) => {
+    //             self.visit_used_move(target_path, place);
+    //         }
+    //         mir::Operand::Constant(constant) => {
+    //             let mir::Constant {
+    //                 user_ty, literal, ..
+    //             } = constant.borrow();
+    //             let const_value = self.visit_constant(*user_ty, &literal);
+    //             self.body_visitor
+    //                 .state
+    //                 .update_value_at(target_path, const_value);
+    //         }
+    //     };
+    // }
 
     // E.g. NullaryOp(Box, [usize; 5])
     fn visit_nullary_op(
@@ -1723,11 +1837,28 @@ where
             };
         let alignment = Rc::new(1u128.into());
         let value = match null_op {
-            mir::NullOp::Box => {
-                path = Path::new_field(Path::new_field(path, 0), 0);
-                self.body_visitor.get_new_heap_block(len, alignment, ty)
-            }
+            mir::NullOp::AlignOf => alignment,
             mir::NullOp::SizeOf => len,
+            mir::NullOp::OffsetOf(fields) => {
+                if let Ok(ty_and_layout) = self.body_visitor.context.tcx.layout_of(param_env.and(ty)) {
+                    let lcx = LayoutCx {
+                        tcx: self.body_visitor.context.tcx,
+                        param_env: self.body_visitor.type_visitor.get_param_env(),
+                    };
+                    let offset_in_bytes = ty_and_layout
+                        .offset_of_subfield(&lcx, fields.iter())
+                        .bytes();
+                    Rc::new((offset_in_bytes as u128).into())
+                } else {
+                    //todo: need expression that eventually refines into the actual offset
+                    // let type_index = self.body_visitor.type_visitor.get_index_for(self.bv.tcx.types.u128);
+                    // SymbolicValue::make_typed_unknown(
+                    //     ExpressionType::U128,
+                    //     Path::new_local(996, type_index),
+                    // )
+                    symbolic_value::BOTTOM.into()
+                }
+            }
         };
         self.body_visitor.state.update_value_at(path, value);
     }
@@ -1774,12 +1905,29 @@ where
         let operand_val = self.visit_operand(operand);
         match cast_kind {
             // TODO: do we need to check overflow while casting?
-            mir::CastKind::Misc => {
+            mir::CastKind::Transmute 
+            | mir::CastKind::IntToInt
+            | mir::CastKind::FloatToFloat
+            | mir::CastKind::FloatToInt
+            | mir::CastKind::IntToFloat
+            | mir::CastKind::FnPtrToPtr
+            | mir::CastKind::PtrToPtr => {
                 let result = operand_val.cast(ExpressionType::from(ty.kind()));
                 self.body_visitor.state.update_value_at(path, result);
             }
             // Leave pointer unchanged
-            mir::CastKind::Pointer(..) => {
+            // An exposing pointer to address cast. A cast between a pointer and an integer type, or
+            // between a function pointer and an integer type.
+            // See the docs on `expose_addr` for more details.
+            mir::CastKind::PointerExposeAddress
+            // An address-to-pointer cast that picks up an exposed provenance.
+            // See the docs on `from_exposed_addr` for more details.
+            | mir::CastKind::PointerFromExposedAddress
+            // All sorts of pointer-to-pointer casts. Note that reference-to-raw-ptr casts are
+            // translated into `&raw mut/const *r`, i.e., they are not actually casts.
+            | mir::CastKind::PointerCoercion(..)
+            // Cast into a dyn* object.
+            | mir::CastKind::DynStar => {
                 self.visit_use(path, operand);
             }
         }
@@ -1894,7 +2042,7 @@ where
     // Repeat `operand` for `count` times
     fn visit_repeat(&mut self, path: Rc<Path>, operand: &mir::Operand<'tcx>, count: &Const<'tcx>) {
         let length_path = Path::new_length(path.clone());
-        let length_value = self.visit_constant(None, count);
+        let length_value = self.visit_constant(count);
         self.body_visitor
             .state
             .update_value_at(length_path, length_value.clone());
@@ -1913,11 +2061,21 @@ where
                 self.visit_operand_place(place)
             }
             mir::Operand::Constant(constant) => {
-                let mir::Constant {
-                    user_ty, literal, ..
-                } = constant.borrow();
-                self.visit_constant(*user_ty, &literal)
+                let mir::ConstOperand { const_, .. } = constant.borrow();
+                self.visit_literal(const_)
             }
+        }
+    }
+
+    pub fn visit_literal(&mut self, literal: &mir::Const<'tcx>) -> Rc<SymbolicValue> {
+        match literal {
+            // This constant came from the type system
+            mir::Const::Ty(c) => self.visit_constant(c),
+            // An unevaluated mir constant which is not part of the type system.
+            // mir::Const::Unevaluated(c, ty) => self.visit_unevaluated_const(c, *ty),
+            // // This constant contains something the type system cannot handle (e.g. pointers).
+            // mir::Const::Val(v, ty) => self.visit_const_value(*v, *ty),
+            _ => symbolic_value::BOTTOM.into()
         }
     }
 
@@ -1996,15 +2154,13 @@ where
                 self.visit_used_move(path, place);
             }
             mir::Operand::Constant(constant) => {
-                let mir::Constant {
-                    user_ty, literal, ..
-                } = constant.borrow();
-                let rh_type = literal.ty;
+                let mir::ConstOperand { const_, .. } = constant.borrow();
+                let rh_type = const_.ty();
                 debug!(
-                    "constant: {:?}, literal: {:?}, user_ty: {:?}, rh_type: {:?}",
-                    constant, literal, user_ty, rh_type
+                    "constant: {:?}, const_: {:?}, rh_type: {:?}",
+                    constant, const_, rh_type
                 );
-                let const_value = self.visit_constant(*user_ty, &literal);
+                let const_value = self.visit_literal(const_);
                 if const_value.expression.infer_type() == ExpressionType::NonPrimitive {
                     if let Expression::Reference(rpath) | Expression::Variable { path: rpath, .. } =
                         &const_value.expression
