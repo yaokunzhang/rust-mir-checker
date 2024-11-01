@@ -35,9 +35,9 @@ fn main() {
     let mut buffer = Buffer::new();
 
     // 调用不安全的填充操作，可能会越界
-    buffer.unsafe_fill(11, 100); // 从索引8写入100
+    buffer.unsafe_fill(11, 100); // 从索引11写入100
     buffer.unsafe_fill(8, 100);
 
-    buffer.safe_fill(11, 200); // 从索引5写入200
+    buffer.safe_fill(11, 200); // 从索引11写入200
 
 }
