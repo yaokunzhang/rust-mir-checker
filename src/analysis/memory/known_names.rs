@@ -148,13 +148,25 @@ impl KnownNamesCache {
                 .unwrap_or(KnownNames::None)
         };
 
+        // let get_known_name_for_slice_impl_namespace = |mut def_path_data_iter: Iter<'_>| {
+        //     // def_path_data_iter.next();
+        //     get_path_data_elem_name(def_path_data_iter.next())
+        //         .map(|n| match n.as_str().deref() {
+        //             "get_unchecked_mut" => KnownNames::StdSliceIndexGetUncheckedMut,
+        //             "get_unchecked" => KnownNames::StdSliceIndexGetUnchecked,
+        //             _ => KnownNames::None,
+        //         })
+        //         .unwrap_or(KnownNames::None)
+        // };
+
         let get_known_name_for_slice_namespace = |mut def_path_data_iter: Iter<'_>| {
-            // def_path_data_iter.next();
+            def_path_data_iter.next();
             get_path_data_elem_name(def_path_data_iter.next())
                 .map(|n| match n.as_str().deref() {
                     // not occur
                     "into_vec" => KnownNames::StdIntoVec,
-                    "index" => get_known_name_for_slice_index_namespace(def_path_data_iter),
+                    "get_unchecked_mut" => KnownNames::StdSliceIndexGetUncheckedMut,
+                    "get_unchecked" => KnownNames::StdSliceIndexGetUnchecked,
                     _ => KnownNames::None,
                 })
                 .unwrap_or(KnownNames::None)
@@ -202,6 +214,8 @@ impl KnownNamesCache {
                 .unwrap_or(KnownNames::None)
         };
 
+        
+
         let get_known_name_for_known_crate = |mut def_path_data_iter: Iter<'_>| {
             get_path_data_elem_name(def_path_data_iter.next())
                 .map(|n| match n.as_str().deref() {
@@ -213,7 +227,7 @@ impl KnownNamesCache {
                     "convert" => get_known_name_for_convert_namespace(def_path_data_iter),
                     "vec" => get_known_name_for_vec_namespace(def_path_data_iter),
                     "ptr" => get_known_name_for_ptr_namespace(def_path_data_iter),
-                    // "core"=>
+                    // "core" => get_known_name_for_core_namespace(def_path_data_iter),
                     "mir_checker_verify" => KnownNames::MirCheckerVerify,
                     _ => {
                         debug!("Normal function: {:?}", n.as_str());

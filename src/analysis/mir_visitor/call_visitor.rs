@@ -777,7 +777,7 @@ where
         let state = self.block_visitor.state().clone();
         let body_visitor = &mut self.block_visitor.body_visitor;
 
-        let array = &self.actual_args[1].0;
+        let array = &self.actual_args[0].0;
         let array_len = Path::new_length(array.clone()).refine_paths(&body_visitor.state);
         let array_len_val = SymbolicValue::make_from(
             Expression::Variable {
@@ -786,7 +786,7 @@ where
             },
             1,
         );
-        let index_val = &self.actual_args[0].1;
+        let index_val = &self.actual_args[1].1;
         let result = destination_path.as_ref().unwrap();
 
         let assert_checker = AssertionChecker::new(body_visitor);
@@ -851,7 +851,7 @@ where
         let state = self.block_visitor.state().clone();
         let body_visitor = &mut self.block_visitor.body_visitor;
 
-        let array = &self.actual_args[1].0;
+        let array = &self.actual_args[0].0;
         let array_len = Path::new_length(array.clone()).refine_paths(&body_visitor.state);
         let array_len_val = SymbolicValue::make_from(
             Expression::Variable {
@@ -860,7 +860,7 @@ where
             },
             1,
         );
-        let index_val = &self.actual_args[0].1;
+        let index_val = &self.actual_args[1].1;
         let result = destination_path.as_ref().unwrap();
 
         let assert_checker = AssertionChecker::new(body_visitor);
