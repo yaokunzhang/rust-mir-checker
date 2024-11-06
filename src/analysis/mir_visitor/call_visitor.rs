@@ -115,7 +115,7 @@ where
                 args: &[],
                 actual_args: &[],
                 actual_argument_types: &[],
-                destination: None,
+                destination: mir::Place::return_place(),
                 function_constant_args: &[],
                 call_stack: active_calls,
             }
@@ -224,8 +224,17 @@ where
                     .body_visitor
                     .type_visitor
                     .get_path_rustc_type(path, self.block_visitor.body_visitor.current_span);
+
+                // 实例化后的Ty, 因为Ty内存在一些泛型参数，要把他们实例化。
+                let specialized_closure_ty = 
+                    self.block_visitor.body_visitor.type_visitor.specialize_generic_argument_type(
+                        closure_ty, &self
+                        .block_visitor
+                        .body_visitor
+                        .type_visitor
+                        .generic_argument_map);
                 match closure_ty.kind() {
-                    TyKind::Closure(def_id, substs) => {
+                    TyKind::Closure(def_id, args) => {
                         let specialized_substs = self
                             .block_visitor
                             .body_visitor
@@ -274,8 +283,11 @@ where
     }
 
     pub fn get_function_post_state(&mut self) -> Option<AbstractDomain<DomainType>> {
+        // 获得被调用函数的符号值
         let fun_val = self.callee_fun_val.clone();
+        // 获得函数引用
         if let Some(func_ref) = self.get_func_ref(&fun_val) {
+            // 如果调用栈不存在这个def_id，则推入调用栈，返回这个函数的post_state
             if !self.call_stack.contains(&func_ref.def_id.unwrap()) {
                 self.call_stack.push(func_ref.def_id.unwrap());
                 debug!("call stack {:?}", self.call_stack);
@@ -283,6 +295,7 @@ where
                 return res;
             }
         }
+        // 无法获得函数引用，返回None
         warn!("Failed to get_func_ref");
         None
     }
