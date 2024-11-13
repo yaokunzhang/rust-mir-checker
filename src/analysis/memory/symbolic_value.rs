@@ -233,6 +233,7 @@ pub trait SymbolicValueTrait: Sized {
     fn refine_with(&self, path_condition: &Self, depth: usize) -> Self;
     fn widen(&self, path: &Rc<Path>) -> Self;
     fn depend_on_path_value(&self, path: &Rc<Path>, value: &Rc<SymbolicValue>) -> bool;
+    fn offset(&self, other: Self) -> Self;
 }
 
 /// Two methods that are used to refine a symbolic value
@@ -324,6 +325,9 @@ where
             Expression::Widen { path, operand, .. } => operand
                 .refine_paths(environment)
                 .widen(&path.refine_paths(environment)),
+            Expression::Offset { left, right } => left
+                .refine_paths(environment)
+                .offset(right.refine_paths(environment)),
         }
     }
 
@@ -408,6 +412,9 @@ where
             Expression::Widen { path, operand, .. } => operand
                 .refine_parameters(arguments)
                 .widen(&path.refine_parameters(arguments)),
+            Expression::Offset { left, right } => left
+                .refine_parameters(arguments)
+                .offset(right.refine_parameters(arguments)),
         }
     }
 }
@@ -1025,6 +1032,12 @@ impl SymbolicValueTrait for Rc<SymbolicValue> {
         }
     }
 
+    fn offset(&self, other: Rc<SymbolicValue>) -> Rc<SymbolicValue> {
+        match (&self.expression, &other.expression) {
+            
+        }
+    }
+
     /// Returns an element that is "self != other".
     fn not_equals(&self, other: Rc<SymbolicValue>) -> Rc<SymbolicValue> {
         if let (Expression::CompileTimeConstant(v1), Expression::CompileTimeConstant(v2)) =
@@ -1395,6 +1408,9 @@ impl SymbolicValueTrait for Rc<SymbolicValue> {
             Expression::Widen { path, operand } => {
                 operand.refine_with(path_condition, depth + 1).widen(&path)
             }
+            Expression::Offset { left, right } => left
+                .refine_with(path_condition, depth + 1)
+                .offset(right.refine_with(path_condition, depth + 1)),
         }
     }
 

@@ -170,6 +170,12 @@ pub enum Expression {
         // The value of the right operand.
         right: Rc<SymbolicValue>,
     },
+
+    /// An expression that is left offset with right. ptr.offset
+    Offset {
+        left: Rc<SymbolicValue>,
+        right: Rc<SymbolicValue>,
+    },
 }
 
 impl Debug for Expression {
@@ -234,6 +240,9 @@ impl Debug for Expression {
             Expression::Mul { left, right } => {
                 f.write_fmt(format_args!("({:?}) * ({:?})", left, right))
             }
+            Expression::Offset { left, right } => {
+                f.write_fmt(format_args!("({:?}).offset({:?})", left, right))
+            }
         }
     }
 }
@@ -266,6 +275,8 @@ impl Expression {
             // TODO: simply regarding numerical values as `i128` is not precise
             Expression::Numerical(..) => I128,
             Expression::Mul { left, .. } => left.expression.infer_type(),
+            // TODO:not sure about the type of offset
+            Expression::Offset { left, .. } => NonPrimitive,
         }
     }
 
