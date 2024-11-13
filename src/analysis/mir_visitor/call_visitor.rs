@@ -27,6 +27,7 @@ use rustc_hir::def_id::DefId;
 use rustc_middle::mir;
 use rustc_middle::ty::subst::SubstsRef;
 use rustc_middle::ty::{Ty, TyKind};
+use core::panic;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter, Result};
 use std::rc::Rc;
@@ -324,12 +325,45 @@ where
                 self.handle_index();
                 return true;
             }
-            KnownNames::PtrOffset => {
-                return self.handle_offset();
-                //return true;
+            KnownNames::StdPtrMutPtrOffset 
+            | KnownNames::StdPtrConstPtrOffset 
+            | KnownNames::StdPtrMutPtrAdd
+            | KnownNames::StdPtrConstPtrAdd
+            | KnownNames::StdPtrMutPtrSub
+            | KnownNames::StdPtrConstPtrSub
+            | KnownNames::StdPtrConstPtrWrappingOffset
+            | KnownNames::StdPtrMutPtrWrappingOffset
+            | KnownNames::StdPtrMutPtrWrappingAdd
+            | KnownNames::StdPtrConstPtrWrappingAdd
+            | KnownNames::StdPtrMutPtrWrappingSub
+            | KnownNames::StdPtrConstPtrWrappingSub => {
+                // panic!("{:?}", self.callee_known_name);
+                self.handle_offset();
+                return true;
             }
-            KnownNames::PtrByteOffset => {
-                return self.handle_byte_offset();
+            KnownNames::StdPtrMutPtrByteOffset 
+            | KnownNames::StdPtrConstPtrByteOffset 
+            | KnownNames::StdPtrMutPtrByteAdd 
+            | KnownNames::StdPtrConstPtrByteAdd
+            | KnownNames::StdPtrMutPtrByteSub
+            | KnownNames::StdPtrConstPtrByteSub 
+            | KnownNames::StdPtrConstPtrWrappingByteOffset
+            | KnownNames::StdPtrMutPtrWrappingByteOffset
+            | KnownNames::StdPtrMutPtrWrappingByteAdd
+            | KnownNames::StdPtrConstPtrWrappingByteAdd
+            | KnownNames::StdPtrMutPtrWrappingByteSub
+            | KnownNames::StdPtrConstPtrWrappingByteSub => {
+                // panic!("{:?}", self.callee_known_name);
+                self.handle_byte_offset();
+                return true;
+            }
+            KnownNames::StdPtrConstPtrOffsetFrom 
+            | KnownNames::StdPtrMutPtrOffsetFrom => {
+                panic!("{:?}", self.callee_known_name);
+            }
+            KnownNames::StdPtrConstPtrByteOffsetFrom 
+            | KnownNames::StdPtrMutPtrByteOffsetFrom => {
+                panic!("{:?}", self.callee_known_name);
             }
             KnownNames::StdSliceIndexGetUncheckedMut => {
                 return self.handle_get_unchecked_mut();
