@@ -299,6 +299,7 @@ fn symbolic_to_expression(val: Rc<SymbolicValue>) -> Result<LinearExpression, &'
         // }
 
         Top
+        | Offset { .. }
         | Bottom
         | And { .. }
         | Equals { .. }
@@ -311,6 +312,7 @@ fn symbolic_to_expression(val: Rc<SymbolicValue>) -> Result<LinearExpression, &'
         | Or { .. }
         | Ne { .. }
         | Mul { .. }
+        | Add { .. }
         | Reference(..)
         | LogicalNot { .. }
         // | Offset { .. }

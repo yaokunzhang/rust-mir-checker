@@ -1945,7 +1945,7 @@ where
                 mir::BinOp::Le => left.less_or_equal(right),
                 mir::BinOp::Lt => left.less_than(right),
                 mir::BinOp::Ne => left.not_equals(right),
-                mir::BinOp::Offset => left,
+                mir::BinOp::Offset => left.offset(right),
                 _ => unreachable!(),
             };
             debug!("Comparison result: {:?}", result);

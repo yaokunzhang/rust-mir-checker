@@ -171,6 +171,14 @@ pub enum Expression {
         right: Rc<SymbolicValue>,
     },
 
+    /// An expression that is the sum of left and right. +
+    Add {
+        // The value of the left operand.
+        left: Rc<SymbolicValue>,
+        // The value of the right operand.
+        right: Rc<SymbolicValue>,
+    },
+
     /// An expression that is left offset with right. ptr.offset
     Offset {
         left: Rc<SymbolicValue>,
@@ -243,6 +251,9 @@ impl Debug for Expression {
             Expression::Offset { left, right } => {
                 f.write_fmt(format_args!("({:?}).offset({:?})", left, right))
             }
+            Expression::Add { left, right } => {
+                f.write_fmt(format_args!("({:?}) + ({:?})", left, right))
+            }
         }
     }
 }
@@ -277,6 +288,7 @@ impl Expression {
             Expression::Mul { left, .. } => left.expression.infer_type(),
             // TODO:not sure about the type of offset
             Expression::Offset { left, .. } => NonPrimitive,
+            Expression::Add { left, right } => left.expression.infer_type(),
         }
     }
 

@@ -252,15 +252,23 @@ impl Z3Solver {
                 unsafe { z3_sys::Z3_mk_mul(self.z3_context, 2, vec![left_ast, right_ast].as_ptr())}
             }
 
+            Add { left, right } => {
+                let left_ast = self.get_symbolic_as_z3_expression(left);
+                let right_ast = self.get_symbolic_as_z3_expression(right);
+                unsafe { z3_sys::Z3_mk_add(self.z3_context, 2, vec![left_ast, right_ast].as_ptr()) }
+            }
+
             Or { left, right } => {
                 let left_ast = self.get_symbolic_as_z3_expression(left);
                 let right_ast = self.get_symbolic_as_z3_expression(right);
                 unsafe { z3_sys::Z3_mk_or(self.z3_context, 2, vec![left_ast, right_ast].as_ptr()) }
             }
+            
 
             Variable { path, var_type } => self.typed_variable(path, var_type),
 
-            Cast { .. }
+            Offset { .. }
+            | Cast { .. }
             | HeapBlock { .. }
             | Join { .. }
             // | Offset { .. }
