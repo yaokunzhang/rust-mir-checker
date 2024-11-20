@@ -22,12 +22,13 @@ use crate::analysis::numerical::apron_domain::{
 };
 use crate::checker::assertion_checker::{AssertionChecker, CheckerResult};
 use crate::checker::checker_trait::CheckerTrait;
+use core::panic;
+use std::borrow::ToOwned;
 use itertools::Itertools;
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir;
 use rustc_middle::ty::subst::SubstsRef;
 use rustc_middle::ty::{Ty, TyKind};
-use core::panic;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter, Result};
 use std::rc::Rc;
@@ -325,8 +326,8 @@ where
                 self.handle_index();
                 return true;
             }
-            KnownNames::StdPtrMutPtrOffset 
-            | KnownNames::StdPtrConstPtrOffset 
+            KnownNames::StdPtrMutPtrOffset
+            | KnownNames::StdPtrConstPtrOffset
             | KnownNames::StdPtrMutPtrAdd
             | KnownNames::StdPtrConstPtrAdd
             | KnownNames::StdPtrMutPtrSub
@@ -341,12 +342,12 @@ where
                 self.handle_offset();
                 return true;
             }
-            KnownNames::StdPtrMutPtrByteOffset 
-            | KnownNames::StdPtrConstPtrByteOffset 
-            | KnownNames::StdPtrMutPtrByteAdd 
+            KnownNames::StdPtrMutPtrByteOffset
+            | KnownNames::StdPtrConstPtrByteOffset
+            | KnownNames::StdPtrMutPtrByteAdd
             | KnownNames::StdPtrConstPtrByteAdd
             | KnownNames::StdPtrMutPtrByteSub
-            | KnownNames::StdPtrConstPtrByteSub 
+            | KnownNames::StdPtrConstPtrByteSub
             | KnownNames::StdPtrConstPtrWrappingByteOffset
             | KnownNames::StdPtrMutPtrWrappingByteOffset
             | KnownNames::StdPtrMutPtrWrappingByteAdd
@@ -357,12 +358,10 @@ where
                 self.handle_byte_offset();
                 return true;
             }
-            KnownNames::StdPtrConstPtrOffsetFrom 
-            | KnownNames::StdPtrMutPtrOffsetFrom => {
+            KnownNames::StdPtrConstPtrOffsetFrom | KnownNames::StdPtrMutPtrOffsetFrom => {
                 panic!("{:?}", self.callee_known_name);
             }
-            KnownNames::StdPtrConstPtrByteOffsetFrom 
-            | KnownNames::StdPtrMutPtrByteOffsetFrom => {
+            KnownNames::StdPtrConstPtrByteOffsetFrom | KnownNames::StdPtrMutPtrByteOffsetFrom => {
                 panic!("{:?}", self.callee_known_name);
             }
             KnownNames::StdSliceIndexGetUncheckedMut => {
@@ -728,18 +727,13 @@ where
         let index_val = &self.actual_args[1].1;
         let result = destination_path.as_ref().unwrap();
 
-        
-
         let target_type = get_element_type(
             body_visitor
                 .type_visitor
                 .get_path_rustc_type(array, body_visitor.current_span),
         );
-        let byte_size = body_visitor
-            .type_visitor
-            .get_type_size(target_type);
-        let byte_size_value =body_visitor
-            .get_u128_const_val(byte_size as u128);
+        let byte_size = body_visitor.type_visitor.get_type_size(target_type);
+        let byte_size_value = body_visitor.get_u128_const_val(byte_size as u128);
 
         let assert_checker = AssertionChecker::new(body_visitor);
 
@@ -798,7 +792,6 @@ where
         }
         return false;
     }
-
 
     fn handle_get_unchecked(&mut self) -> bool {
         assert!(self.actual_args.len() == 2);
@@ -951,35 +944,55 @@ where
     // _3(指针) = offset(_1, _2)
     fn handle_offset(&mut self) -> bool {
         assert!(self.actual_args.len() == 2);
+
+        let base = &self.actual_args[0].0;
+        // get the base ptr
+        let base_val = &self.actual_args[0].1;
+        // get the offset
+        let mut offset_val = &self.actual_args[1].1;
+        // calculate the result
+        let result = base_val.offset(offset_val.clone());
+
+        if let Expression::Offset{left, right} = &result.expression {
+            offset_val = &(right);
+        }
+
+        debug!("result: {:?}", result);
+
         let destination_path = if let Some(dest) = self.destination {
             Some(self.block_visitor.get_path_for_place(&dest.0))
         } else {
             None
         };
-        assert!(destination_path.is_some());
+
         let state = self.block_visitor.state().clone();
+
         let body_visitor = &mut self.block_visitor.body_visitor;
 
-        let array = &self.actual_args[0].0;
-        let array_len = Path::new_length(array.clone()).refine_paths(&body_visitor.state);
-        let array_len_val = SymbolicValue::make_from(
+        assert!(destination_path.is_some());
+
+        // handle array
+        let base_len = Path::new_length(base.clone()).refine_paths(&body_visitor.state);
+        let base_len_val = SymbolicValue::make_from(
             Expression::Variable {
-                path: array_len.clone(),
+                path: base_len.clone(),
                 var_type: ExpressionType::Usize,
             },
             1,
         );
-        let index_val = &self.actual_args[1].1;
-        let result = destination_path.as_ref().unwrap();
 
+        // let result = destination_path.as_ref().unwrap();
+
+        // check out of bound access
         let assert_checker = AssertionChecker::new(body_visitor);
         let overflow_safe_cond = SymbolicValue::make_from(
             Expression::LessThan {
-                left: index_val.clone(),
-                right: array_len_val,
+                left: offset_val.clone(),
+                right: base_len_val,
             },
             1,
         );
+
         let check_result = assert_checker.check_assert_condition(overflow_safe_cond, true, &state);
         //  TODO: 相同Span只能发出一次诊断，未发出的诊断会由编译器进行报错。
         match check_result {
@@ -1004,24 +1017,18 @@ where
         }
 
         // TODO:这里采用保守方式。
-        let result = self.try_to_inline_special_function();
-        if !result.is_bottom() {
-            if let Some(target_path) = destination_path {
-                // let target_path = self.block_visitor.visit_place(place);
-                self.block_visitor
-                    .body_visitor
-                    .state
-                    .update_value_at(target_path.clone(), result);
-                // let exit_condition = self.block_visitor.state.entry_condition.clone();
-                // self.block_visitor
-                //     .state
-                //     .exit_conditions
-                //     .insert(*target, exit_condition);
-                return true;
-            }
+        if let Some(target_path) = destination_path {
+            // let target_path = self.block_visitor.visit_place(place);
+            self.block_visitor
+                .body_visitor
+                .state
+                .update_value_at(target_path.clone(), result);
+            return true;
         }
         return false;
     }
+
+    fn check_offset(&mut self) {}
 
     // _17(place) = index(move _18 move _19])
     fn handle_index(&mut self) {

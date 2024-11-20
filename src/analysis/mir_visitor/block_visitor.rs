@@ -36,7 +36,7 @@ use rustc_span::Span;
 use std::borrow::Borrow;
 use std::convert::TryFrom;
 use std::convert::TryInto;
-use std::fmt;
+use std::{fmt, println};
 use std::rc::Rc;
 
 /// This class is used to extract properties from Rust MIR
@@ -1945,7 +1945,10 @@ where
                 mir::BinOp::Le => left.less_or_equal(right),
                 mir::BinOp::Lt => left.less_than(right),
                 mir::BinOp::Ne => left.not_equals(right),
-                mir::BinOp::Offset => left.offset(right),
+                mir::BinOp::Offset => {
+                    println!("Offset: left: {:?}, right: {:?}", left, right);
+                    left.offset(right)
+                }
                 _ => unreachable!(),
             };
             debug!("Comparison result: {:?}", result);
@@ -2524,6 +2527,10 @@ where
         }
         cond_as_bool
     }
+
+    // pub fn check_offset(&mut self, result: &Rc<SymbolicValue>) -> bool {
+
+    // }
 
     fn solve_condition(&mut self, cond_val: &Rc<SymbolicValue>) -> Option<bool> {
         let constraint_system = LinearConstraintSystem::from(&self.state().numerical_domain);
