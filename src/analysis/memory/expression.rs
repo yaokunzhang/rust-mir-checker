@@ -287,8 +287,8 @@ impl Expression {
             Expression::Numerical(..) => I128,
             Expression::Mul { left, .. } => left.expression.infer_type(),
             // TODO:not sure about the type of offset
-            Expression::Offset { left, .. } => NonPrimitive,
-            Expression::Add { left, right } => left.expression.infer_type(),
+            Expression::Offset { .. } => NonPrimitive,
+            Expression::Add { left, .. } => left.expression.infer_type(),
         }
     }
 

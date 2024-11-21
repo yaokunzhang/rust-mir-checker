@@ -18,7 +18,6 @@ use crate::analysis::wto::{Wto, WtoCircle, WtoVertex, WtoVisitor};
 use crate::analysis::z3_solver::Z3Solver;
 use crate::checker::assertion_checker::AssertionChecker;
 use crate::checker::checker_trait::CheckerTrait;
-use crate::checker::unsafe_func_checker::UnsafeFuncChecker;
 use itertools::Itertools;
 use log::{debug, error, warn};
 use rug::Integer;

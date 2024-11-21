@@ -11,7 +11,6 @@ use rustc_hir::def_id::DefId;
 use rustc_hir::definitions::{DefPathData, DisambiguatedDefPathData};
 use rustc_middle::ty::TyCtxt;
 use std::collections::HashMap;
-use std::eprintln;
 use std::iter::Iterator;
 
 /// Well known definitions (language provided items) that are treated in special ways.
@@ -167,16 +166,16 @@ impl KnownNamesCache {
                 .unwrap_or(KnownNames::None)
         };
 
-        let get_known_name_for_slice_index_namespace = |mut def_path_data_iter: Iter<'_>| {
-            def_path_data_iter.next();
-            get_path_data_elem_name(def_path_data_iter.next())
-                .map(|n| match n.as_str().deref() {
-                    "get_unchecked_mut" => KnownNames::StdSliceIndexGetUncheckedMut,
-                    "get_unchecked" => KnownNames::StdSliceIndexGetUnchecked,
-                    _ => KnownNames::None,
-                })
-                .unwrap_or(KnownNames::None)
-        };
+        // let get_known_name_for_slice_index_namespace = |mut def_path_data_iter: Iter<'_>| {
+        //     def_path_data_iter.next();
+        //     get_path_data_elem_name(def_path_data_iter.next())
+        //         .map(|n| match n.as_str().deref() {
+        //             "get_unchecked_mut" => KnownNames::StdSliceIndexGetUncheckedMut,
+        //             "get_unchecked" => KnownNames::StdSliceIndexGetUnchecked,
+        //             _ => KnownNames::None,
+        //         })
+        //         .unwrap_or(KnownNames::None)
+        // };
 
         // let get_known_name_for_slice_impl_namespace = |mut def_path_data_iter: Iter<'_>| {
         //     // def_path_data_iter.next();

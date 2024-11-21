@@ -36,7 +36,7 @@ use rustc_span::Span;
 use std::borrow::Borrow;
 use std::convert::TryFrom;
 use std::convert::TryInto;
-use std::{fmt, println};
+use std::fmt;
 use std::rc::Rc;
 
 /// This class is used to extract properties from Rust MIR
@@ -1946,7 +1946,7 @@ where
                 mir::BinOp::Lt => left.less_than(right),
                 mir::BinOp::Ne => left.not_equals(right),
                 mir::BinOp::Offset => {
-                    println!("Offset: left: {:?}, right: {:?}", left, right);
+                    error!("Offset: left: {:?}, right: {:?}", left, right);
                     left.offset(right)
                 }
                 _ => unreachable!(),

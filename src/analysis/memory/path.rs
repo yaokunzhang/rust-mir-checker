@@ -11,7 +11,7 @@
 use super::expression::{Expression, ExpressionType};
 use super::symbolic_value::{self, SymbolicValue, SymbolicValueRefinement, SymbolicValueTrait};
 use crate::analysis::abstract_domain::AbstractDomain;
-use crate::analysis::memory::{expression, utils};
+use crate::analysis::memory::utils;
 use crate::analysis::numerical::apron_domain::{
     ApronAbstractDomain, ApronDomainType, GetManagerTrait,
 };
@@ -21,7 +21,6 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
 use std::fmt::{Debug, Formatter, Result};
 use std::hash::{Hash, Hasher};
-use std::println;
 use std::rc::Rc;
 
 /// Represent a memory location as a path
@@ -452,9 +451,9 @@ where
     /// we want to dereference the qualifier in order to normalize the path
     /// and not have more than one path for the same location.
     fn refine_paths(&self, environment: &AbstractDomain<DomainType>) -> Rc<Path> {
-        println!("self: {:?}", self);
+        // println!("self: {:?}", self);
         if let Some(mut val) = environment.value_at(&self) {
-            println!("val: {:?}", val);
+            // println!("val: {:?}", val);
             // If the environment has self as a key, then self is canonical, since we should only
             // use canonical paths as keys. The value at the canonical key, however, could just
             // be a reference to another path, which is something that happens during refinement.
@@ -486,8 +485,8 @@ where
             } => {
                 let refined_selector = selector.refine_paths(environment);
                 let refined_qualifier = qualifier.refine_paths(environment);
-                println!("refined_selector: {:?}", refined_selector);
-                println!("refined_qualifier: {:?}", refined_qualifier);
+                // println!("refined_selector: {:?}", refined_selector);
+                // println!("refined_qualifier: {:?}", refined_qualifier);
                 // The qualifier is now canonical. But in the context of a selector, we
                 // might be able to simplify the qualifier by dropping an explicit dereference
                 // or an explicit reference.
@@ -507,7 +506,7 @@ where
                 }
                 if let Some(val) = environment.value_at(&refined_qualifier) {
                     let mut val = val;
-                    if let Expression::Offset { left, right } = &val.expression {
+                    if let Expression::Offset { left, .. } = &val.expression {
                         val = left.clone();
                     }
 

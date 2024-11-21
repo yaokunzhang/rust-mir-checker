@@ -23,7 +23,7 @@ use crate::analysis::numerical::apron_domain::{
 use crate::checker::assertion_checker::{AssertionChecker, CheckerResult};
 use crate::checker::checker_trait::CheckerTrait;
 use core::panic;
-use std::borrow::ToOwned;
+use std::clone::Clone;
 use itertools::Itertools;
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir;
@@ -338,7 +338,6 @@ where
             | KnownNames::StdPtrConstPtrWrappingAdd
             | KnownNames::StdPtrMutPtrWrappingSub
             | KnownNames::StdPtrConstPtrWrappingSub => {
-                // panic!("{:?}", self.callee_known_name);
                 self.handle_offset();
                 return true;
             }
@@ -354,7 +353,6 @@ where
             | KnownNames::StdPtrConstPtrWrappingByteAdd
             | KnownNames::StdPtrMutPtrWrappingByteSub
             | KnownNames::StdPtrConstPtrWrappingByteSub => {
-                // panic!("{:?}", self.callee_known_name);
                 self.handle_byte_offset();
                 return true;
             }
@@ -725,7 +723,7 @@ where
             1,
         );
         let index_val = &self.actual_args[1].1;
-        let result = destination_path.as_ref().unwrap();
+        let _result = destination_path.as_ref().unwrap();
 
         let target_type = get_element_type(
             body_visitor
@@ -814,7 +812,7 @@ where
             1,
         );
         let index_val = &self.actual_args[1].1;
-        let result = destination_path.as_ref().unwrap();
+        let _result = destination_path.as_ref().unwrap();
 
         let assert_checker = AssertionChecker::new(body_visitor);
         let overflow_safe_cond = SymbolicValue::make_from(
@@ -888,7 +886,7 @@ where
             1,
         );
         let index_val = &self.actual_args[1].1;
-        let result = destination_path.as_ref().unwrap();
+        let _result = destination_path.as_ref().unwrap();
 
         let assert_checker = AssertionChecker::new(body_visitor);
         let overflow_safe_cond = SymbolicValue::make_from(
@@ -945,31 +943,44 @@ where
     fn handle_offset(&mut self) -> bool {
         assert!(self.actual_args.len() == 2);
 
-        let base = &self.actual_args[0].0;
-        // get the base ptr
-        let base_val = &self.actual_args[0].1;
-        // get the offset
-        let mut offset_val = &self.actual_args[1].1;
-        // calculate the result
-        let result = base_val.offset(offset_val.clone());
+        let offset_val = &self.actual_args[1].1;
+        let result = self.check_offset(&offset_val);
 
-        if let Expression::Offset{left, right} = &result.expression {
-            offset_val = &(right);
-        }
-
-        debug!("result: {:?}", result);
 
         let destination_path = if let Some(dest) = self.destination {
             Some(self.block_visitor.get_path_for_place(&dest.0))
         } else {
             None
         };
+        assert!(destination_path.is_some());
+
+        if let Some(target_path) = destination_path {
+            self.block_visitor
+                .body_visitor
+                .state
+                .update_value_at(target_path.clone(), result);
+            return true;
+        }
+        return false;
+    }
+
+    // prepare offset_val for different situation
+    fn check_offset(&mut self, old_offset_val: &Rc<SymbolicValue>) -> Rc<SymbolicValue> {
+        let base = &self.actual_args[0].0;
+        // get the base ptr
+        let base_val = &self.actual_args[0].1;  
+        // calculate the result
+        let result = base_val.offset(old_offset_val.clone());
+        let mut offset_val = old_offset_val.clone();
+        if let Expression::Offset{ right, ..} = &result.expression {
+            offset_val = right.clone();
+        }
+
+        debug!("result: {:?}", result);
 
         let state = self.block_visitor.state().clone();
 
         let body_visitor = &mut self.block_visitor.body_visitor;
-
-        assert!(destination_path.is_some());
 
         // handle array
         let base_len = Path::new_length(base.clone()).refine_paths(&body_visitor.state);
@@ -994,7 +1005,7 @@ where
         );
 
         let check_result = assert_checker.check_assert_condition(overflow_safe_cond, true, &state);
-        //  TODO: 相同Span只能发出一次诊断，未发出的诊断会由编译器进行报错。
+        //  FIXME: 相同Span只能发出一次诊断，未发出的诊断会由编译器进行报错。
         match check_result {
             CheckerResult::Safe => (),
             CheckerResult::Unsafe => {
@@ -1015,20 +1026,8 @@ where
                 // body_visitor.emit_diagnostic(warning, false, DiagnosticCause::Index);
             }
         }
-
-        // TODO:这里采用保守方式。
-        if let Some(target_path) = destination_path {
-            // let target_path = self.block_visitor.visit_place(place);
-            self.block_visitor
-                .body_visitor
-                .state
-                .update_value_at(target_path.clone(), result);
-            return true;
-        }
-        return false;
+        result.clone()
     }
-
-    fn check_offset(&mut self) {}
 
     // _17(place) = index(move _18 move _19])
     fn handle_index(&mut self) {
