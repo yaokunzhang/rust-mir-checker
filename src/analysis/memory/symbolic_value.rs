@@ -235,6 +235,7 @@ pub trait SymbolicValueTrait: Sized {
     fn depend_on_path_value(&self, path: &Rc<Path>, value: &Rc<SymbolicValue>) -> bool;
     fn offset(&self, other: Self) -> Self;
     fn add(&self, other: Self) -> Self;
+    fn sub(&self, other: Self) -> Self;
 }
 
 /// Two methods that are used to refine a symbolic value
@@ -332,6 +333,9 @@ where
             Expression::Add { left, right } => left
                 .refine_paths(environment)
                 .add(right.refine_paths(environment)),
+            Expression::Sub { left, right } => left
+                .refine_paths(environment)
+                .sub(right.refine_paths(environment)),
         }
     }
 
@@ -422,6 +426,9 @@ where
             Expression::Add { left, right } => left
                 .refine_parameters(arguments)
                 .add(right.refine_parameters(arguments)),
+            Expression::Sub { left, right } => left
+                .refine_parameters(arguments)
+                .sub(right.refine_parameters(arguments)),
         }
     }
 }
@@ -475,6 +482,12 @@ impl SymbolicValueTrait for Rc<SymbolicValue> {
                     left.depend_on_path_value(path, value)
                         || right.depend_on_path_value(path, value)
                 }
+                Expression::Sub { left, right }
+                | Expression::Add { left, right }
+                | Expression::Offset { left, right } => {
+                    left.depend_on_path_value(path, value)
+                        || right.depend_on_path_value(path, value)
+                }
                 Expression::Or { left, right } => {
                     left.depend_on_path_value(path, value)
                         || right.depend_on_path_value(path, value)
@@ -492,6 +505,18 @@ impl SymbolicValueTrait for Rc<SymbolicValue> {
             return Rc::new(v1.add(v2).into());
         };
         SymbolicValue::make_binary(self.clone(), other, |left, right| Expression::Add {
+            left,
+            right,
+        })
+    }
+
+    fn sub(&self, other: Self) -> Self {
+        if let (Expression::CompileTimeConstant(v1), Expression::CompileTimeConstant(v2)) =
+            (&self.expression, &other.expression)
+        {
+            return Rc::new(v1.sub(v2).into());
+        };
+        SymbolicValue::make_binary(self.clone(), other, |left, right| Expression::Sub {
             left,
             right,
         })
@@ -1440,6 +1465,9 @@ impl SymbolicValueTrait for Rc<SymbolicValue> {
             Expression::Add { left, right } => left
                 .refine_with(path_condition, depth + 1)
                 .add(right.refine_with(path_condition, depth + 1)),
+            Expression::Sub { left, right } => left
+                .refine_with(path_condition, depth + 1)
+                .sub(right.refine_with(path_condition, depth + 1)),
         }
     }
 

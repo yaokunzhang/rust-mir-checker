@@ -179,6 +179,11 @@ pub enum Expression {
         right: Rc<SymbolicValue>,
     },
 
+    Sub {
+        left: Rc<SymbolicValue>,
+        right: Rc<SymbolicValue>,
+    },
+
     /// An expression that is left offset with right. ptr.offset
     Offset {
         left: Rc<SymbolicValue>,
@@ -254,6 +259,9 @@ impl Debug for Expression {
             Expression::Add { left, right } => {
                 f.write_fmt(format_args!("({:?}) + ({:?})", left, right))
             }
+            Expression::Sub { left, right } => {
+                f.write_fmt(format_args!("({:?}) - ({:?})", left, right))
+            }
         }
     }
 }
@@ -289,6 +297,7 @@ impl Expression {
             // TODO:not sure about the type of offset
             Expression::Offset { .. } => NonPrimitive,
             Expression::Add { left, .. } => left.expression.infer_type(),
+            Expression::Sub { left, .. } => left.expression.infer_type(),
         }
     }
 
