@@ -31,6 +31,7 @@ use rustc_middle::ty::subst::SubstsRef;
 use rustc_middle::ty::{Ty, TyKind};
 use std::clone::Clone;
 use std::collections::{HashMap, HashSet};
+use std::convert::Into;
 use std::fmt::{Debug, Formatter, Result};
 use std::rc::Rc;
 
@@ -702,92 +703,49 @@ where
             .copy_or_move_elements(result.clone(), source.clone(), rtype, true);
     }
 
-    // _3(指针) = offset(_1, _2)
     fn handle_byte_offset(&mut self) -> bool {
         assert!(self.actual_args.len() == 2);
+
+        let offset_val = match self.callee_known_name {
+            KnownNames::StdPtrMutPtrByteOffset
+            | KnownNames::StdPtrConstPtrByteOffset
+            | KnownNames::StdPtrMutPtrByteAdd
+            | KnownNames::StdPtrConstPtrByteAdd
+            | KnownNames::StdPtrConstPtrWrappingByteOffset
+            | KnownNames::StdPtrMutPtrWrappingByteOffset
+            | KnownNames::StdPtrMutPtrWrappingByteAdd
+            | KnownNames::StdPtrConstPtrWrappingByteAdd => self.actual_args[1].1.clone(),
+            KnownNames::StdPtrMutPtrWrappingByteSub
+            | KnownNames::StdPtrConstPtrWrappingByteSub
+            | KnownNames::StdPtrMutPtrByteSub
+            | KnownNames::StdPtrConstPtrByteSub => {
+                let offset_val = self.actual_args[1].1.clone();
+                let zero_val = SymbolicValue::make_from(
+                    Expression::CompileTimeConstant(ConstantValue::Int(Integer::from(0))),
+                    1,
+                );
+                zero_val.sub(offset_val)
+            }
+            _ => {
+                return false;
+            }
+        };
+
+        let result = self.check_offset(&offset_val);
+
         let destination_path = if let Some(dest) = self.destination {
             Some(self.block_visitor.get_path_for_place(&dest.0))
         } else {
             None
         };
         assert!(destination_path.is_some());
-        let state = self.block_visitor.state().clone();
-        let body_visitor = &mut self.block_visitor.body_visitor;
 
-        let array = &self.actual_args[0].0;
-        let array_len = Path::new_length(array.clone()).refine_paths(&body_visitor.state);
-        let array_len_val = SymbolicValue::make_from(
-            Expression::Variable {
-                path: array_len.clone(),
-                var_type: ExpressionType::Usize,
-            },
-            1,
-        );
-        let index_val = &self.actual_args[1].1;
-        let _result = destination_path.as_ref().unwrap();
-
-        let target_type = get_element_type(
-            body_visitor
-                .type_visitor
-                .get_path_rustc_type(array, body_visitor.current_span),
-        );
-        let byte_size = body_visitor.type_visitor.get_type_size(target_type);
-        let byte_size_value = body_visitor.get_u128_const_val(byte_size as u128);
-
-        let assert_checker = AssertionChecker::new(body_visitor);
-
-        let overflow_safe_cond = SymbolicValue::make_from(
-            Expression::LessThan {
-                left: index_val.clone(),
-                right: SymbolicValue::make_from(
-                    Expression::Mul {
-                        left: array_len_val,
-                        right: byte_size_value,
-                    },
-                    1,
-                ),
-            },
-            2,
-        );
-        let check_result = assert_checker.check_assert_condition(overflow_safe_cond, true, &state);
-        //  TODO: 相同Span只能发出一次诊断，未发出的诊断会由编译器进行报错。
-        match check_result {
-            CheckerResult::Safe => (),
-            CheckerResult::Unsafe => {
-                let mut error = body_visitor.context.session.struct_span_warn(
-                    body_visitor.current_span,
-                    format!("[MirChecker] Provably error: index out of bound",).as_str(),
-                );
-                error.emit();
-                // body_visitor.emit_diagnostic(error, false, DiagnosticCause::Index);
-                //return;
-            }
-            CheckerResult::Warning => {
-                let mut warning = body_visitor.context.session.struct_span_warn(
-                    body_visitor.current_span,
-                    format!("[MirChecker] Possible error: index out of bound").as_str(),
-                );
-                warning.emit();
-                // body_visitor.emit_diagnostic(warning, false, DiagnosticCause::Index);
-            }
-        }
-
-        // TODO:这里采用保守方式。
-        let result = self.try_to_inline_special_function();
-        if !result.is_bottom() {
-            if let Some(target_path) = destination_path {
-                // let target_path = self.block_visitor.visit_place(place);
-                self.block_visitor
-                    .body_visitor
-                    .state
-                    .update_value_at(target_path.clone(), result);
-                // let exit_condition = self.block_visitor.state.entry_condition.clone();
-                // self.block_visitor
-                //     .state
-                //     .exit_conditions
-                //     .insert(*target, exit_condition);
-                return true;
-            }
+        if let Some(target_path) = destination_path {
+            self.block_visitor
+                .body_visitor
+                .state
+                .update_value_at(target_path.clone(), result);
+            return true;
         }
         return false;
     }
@@ -943,6 +901,18 @@ where
     // _3(指针) = offset(_1, _2)
     fn handle_offset(&mut self) -> bool {
         assert!(self.actual_args.len() == 2);
+        let base = &self.actual_args[0].0;
+        let target_type = get_element_type(
+            self.block_visitor
+                .body_visitor
+                .type_visitor
+                .get_path_rustc_type(base, self.block_visitor.body_visitor.current_span),
+        );
+        let byte_size = self
+            .block_visitor
+            .body_visitor
+            .type_visitor
+            .get_type_size(target_type);
 
         let offset_val = match self.callee_known_name {
             KnownNames::StdPtrMutPtrOffset
@@ -952,12 +922,20 @@ where
             | KnownNames::StdPtrConstPtrWrappingOffset
             | KnownNames::StdPtrMutPtrWrappingOffset
             | KnownNames::StdPtrMutPtrWrappingAdd
-            | KnownNames::StdPtrConstPtrWrappingAdd => self.actual_args[1].1.clone(),
+            | KnownNames::StdPtrConstPtrWrappingAdd => {
+                self.actual_args[1].1.clone().mul(SymbolicValue::make_from(
+                    Expression::CompileTimeConstant(ConstantValue::Int(Integer::from(byte_size))),
+                    1,
+                ))
+            }
             KnownNames::StdPtrMutPtrSub
             | KnownNames::StdPtrConstPtrSub
             | KnownNames::StdPtrMutPtrWrappingSub
             | KnownNames::StdPtrConstPtrWrappingSub => {
-                let offset_val = self.actual_args[1].1.clone();
+                let offset_val = self.actual_args[1].1.clone().mul(SymbolicValue::make_from(
+                    Expression::CompileTimeConstant(ConstantValue::Int(Integer::from(byte_size))),
+                    1,
+                ));
                 let zero_val = SymbolicValue::make_from(
                     Expression::CompileTimeConstant(ConstantValue::Int(Integer::from(0))),
                     1,
@@ -1007,6 +985,12 @@ where
         let body_visitor = &mut self.block_visitor.body_visitor;
 
         // handle array
+        let target_type = get_element_type(
+            body_visitor
+                .type_visitor
+                .get_path_rustc_type(base, body_visitor.current_span),
+        );
+        let byte_size = body_visitor.type_visitor.get_type_size(target_type);
         let base_len = Path::new_length(base.clone()).refine_paths(&body_visitor.state);
         let base_len_val = SymbolicValue::make_from(
             Expression::Variable {
@@ -1014,7 +998,11 @@ where
                 var_type: ExpressionType::Usize,
             },
             1,
-        );
+        )
+        .mul(SymbolicValue::make_from(
+            Expression::CompileTimeConstant(ConstantValue::Int(Integer::from(byte_size))),
+            1,
+        ));
 
         // let result = destination_path.as_ref().unwrap();
 
@@ -1043,13 +1031,6 @@ where
             },
             2,
         );
-        // let overflow_safe_cond = SymbolicValue::make_from(
-        //     Expression::LessThan {
-        //         left: offset_val.clone(),
-        //         right: base_len_val,
-        //     },
-        //     1,
-        // );
 
         let check_result = assert_checker.check_assert_condition(overflow_safe_cond, true, &state);
         //  FIXME: 相同Span只能发出一次诊断，未发出的诊断会由编译器进行报错。
