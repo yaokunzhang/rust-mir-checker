@@ -23,12 +23,13 @@ use crate::analysis::numerical::apron_domain::{
 use crate::checker::assertion_checker::{AssertionChecker, CheckerResult};
 use crate::checker::checker_trait::CheckerTrait;
 use core::panic;
-use std::clone::Clone;
 use itertools::Itertools;
+use rug::Integer;
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir;
 use rustc_middle::ty::subst::SubstsRef;
 use rustc_middle::ty::{Ty, TyKind};
+use std::clone::Clone;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter, Result};
 use std::rc::Rc;
@@ -943,9 +944,32 @@ where
     fn handle_offset(&mut self) -> bool {
         assert!(self.actual_args.len() == 2);
 
-        let offset_val = &self.actual_args[1].1;
-        let result = self.check_offset(&offset_val);
+        let offset_val = match self.callee_known_name {
+            KnownNames::StdPtrMutPtrOffset
+            | KnownNames::StdPtrConstPtrOffset
+            | KnownNames::StdPtrMutPtrAdd
+            | KnownNames::StdPtrConstPtrAdd
+            | KnownNames::StdPtrConstPtrWrappingOffset
+            | KnownNames::StdPtrMutPtrWrappingOffset
+            | KnownNames::StdPtrMutPtrWrappingAdd
+            | KnownNames::StdPtrConstPtrWrappingAdd => self.actual_args[1].1.clone(),
+            KnownNames::StdPtrMutPtrSub
+            | KnownNames::StdPtrConstPtrSub
+            | KnownNames::StdPtrMutPtrWrappingSub
+            | KnownNames::StdPtrConstPtrWrappingSub => {
+                let offset_val = self.actual_args[1].1.clone();
+                let zero_val = SymbolicValue::make_from(
+                    Expression::CompileTimeConstant(ConstantValue::Int(Integer::from(0))),
+                    1,
+                );
+                zero_val.sub(offset_val)
+            }
+            _ => {
+                return false;
+            }
+        };
 
+        let result = self.check_offset(&offset_val);
 
         let destination_path = if let Some(dest) = self.destination {
             Some(self.block_visitor.get_path_for_place(&dest.0))
@@ -968,11 +992,11 @@ where
     fn check_offset(&mut self, old_offset_val: &Rc<SymbolicValue>) -> Rc<SymbolicValue> {
         let base = &self.actual_args[0].0;
         // get the base ptr
-        let base_val = &self.actual_args[0].1;  
+        let base_val = &self.actual_args[0].1;
         // calculate the result
         let result = base_val.offset(old_offset_val.clone());
         let mut offset_val = old_offset_val.clone();
-        if let Expression::Offset{ right, ..} = &result.expression {
+        if let Expression::Offset { right, .. } = &result.expression {
             offset_val = right.clone();
         }
 
@@ -996,13 +1020,36 @@ where
 
         // check out of bound access
         let assert_checker = AssertionChecker::new(body_visitor);
+        // offset < base.len && offset >= 0
         let overflow_safe_cond = SymbolicValue::make_from(
-            Expression::LessThan {
-                left: offset_val.clone(),
-                right: base_len_val,
+            Expression::And {
+                left: SymbolicValue::make_from(
+                    Expression::LessThan {
+                        left: offset_val.clone(),
+                        right: base_len_val.clone(),
+                    },
+                    1,
+                ),
+                right: SymbolicValue::make_from(
+                    Expression::GreaterThan {
+                        left: offset_val.clone(),
+                        right: SymbolicValue::make_from(
+                            Expression::CompileTimeConstant(ConstantValue::Int(Integer::from(-1))),
+                            1,
+                        ),
+                    },
+                    1,
+                ),
             },
-            1,
+            2,
         );
+        // let overflow_safe_cond = SymbolicValue::make_from(
+        //     Expression::LessThan {
+        //         left: offset_val.clone(),
+        //         right: base_len_val,
+        //     },
+        //     1,
+        // );
 
         let check_result = assert_checker.check_assert_condition(overflow_safe_cond, true, &state);
         //  FIXME: 相同Span只能发出一次诊断，未发出的诊断会由编译器进行报错。
