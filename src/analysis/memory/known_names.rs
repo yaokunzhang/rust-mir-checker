@@ -60,6 +60,7 @@ pub enum KnownNames {
     StdPtrMutPtrWrappingByteAdd,
     StdPtrMutPtrWrappingByteSub,
     StdPtrMutPtrWrappingByteOffset,
+
     StdPtrConstPtrOffsetFrom,
     StdPtrMutPtrOffsetFrom,
     StdPtrConstPtrByteOffsetFrom,
@@ -227,6 +228,8 @@ impl KnownNamesCache {
             get_path_data_elem_name(def_path_data_iter.next())
                 .map(|n| match n.as_str().deref() {
                     // "write_bytes" => KnownNames::StdIntrinsicsWriteBytes,
+                    "offset_from" => KnownNames::StdPtrConstPtrOffsetFrom,
+                    "byte_offset_from" => KnownNames::StdPtrMutPtrByteOffsetFrom,
                     "cast" => KnownNames::StdPtrMutPtrCast,
                     "add" => KnownNames::StdPtrMutPtrAdd,
                     "sub" => KnownNames::StdPtrMutPtrSub,
@@ -250,6 +253,8 @@ impl KnownNamesCache {
             get_path_data_elem_name(def_path_data_iter.next())
                 .map(|n| match n.as_str().deref() {
                     // "write_bytes" => KnownNames::StdIntrinsicsWriteBytes,
+                    "offset_from" => KnownNames::StdPtrConstPtrOffsetFrom,
+                    "byte_offset_from" => KnownNames::StdPtrMutPtrByteOffsetFrom,
                     "cast" => KnownNames::StdPtrConstPtrCast,
                     "add" => KnownNames::StdPtrConstPtrAdd,
                     "sub" => KnownNames::StdPtrConstPtrSub,

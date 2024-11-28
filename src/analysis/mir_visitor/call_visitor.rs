@@ -22,7 +22,7 @@ use crate::analysis::numerical::apron_domain::{
 };
 use crate::checker::assertion_checker::{AssertionChecker, CheckerResult};
 use crate::checker::checker_trait::CheckerTrait;
-use core::panic;
+// use core::panic;
 use itertools::Itertools;
 use rug::Integer;
 use rustc_hir::def_id::DefId;
@@ -33,7 +33,9 @@ use std::clone::Clone;
 use std::collections::{HashMap, HashSet};
 use std::convert::Into;
 use std::fmt::{Debug, Formatter, Result};
+use std::option::Option::{None, Some};
 use std::rc::Rc;
+use std::assert;
 
 pub struct CallVisitor<'call, 'block, 'analysis, 'compilation, 'tcx, DomainType>
 where
@@ -340,8 +342,8 @@ where
             | KnownNames::StdPtrConstPtrWrappingAdd
             | KnownNames::StdPtrMutPtrWrappingSub
             | KnownNames::StdPtrConstPtrWrappingSub => {
-                self.handle_offset();
-                return true;
+                return self.handle_offset();
+                // return true;
             }
             KnownNames::StdPtrMutPtrByteOffset
             | KnownNames::StdPtrConstPtrByteOffset
@@ -355,14 +357,16 @@ where
             | KnownNames::StdPtrConstPtrWrappingByteAdd
             | KnownNames::StdPtrMutPtrWrappingByteSub
             | KnownNames::StdPtrConstPtrWrappingByteSub => {
-                self.handle_byte_offset();
-                return true;
+                return self.handle_byte_offset();
+                // return true;
             }
             KnownNames::StdPtrConstPtrOffsetFrom | KnownNames::StdPtrMutPtrOffsetFrom => {
-                panic!("{:?}", self.callee_known_name);
+                // panic!("{:?}", self.callee_known_name);
+                return self.handle_offset_from();
             }
             KnownNames::StdPtrConstPtrByteOffsetFrom | KnownNames::StdPtrMutPtrByteOffsetFrom => {
-                panic!("{:?}", self.callee_known_name);
+                // panic!("{:?}", self.callee_known_name);
+                return self.handle_offset_from();
             }
             KnownNames::StdSliceIndexGetUncheckedMut => {
                 return self.handle_get_unchecked_mut();
@@ -702,6 +706,129 @@ where
         self.block_visitor
             .copy_or_move_elements(result.clone(), source.clone(), rtype, true);
     }
+    fn get_ptr_base(&mut self, ptr: &Rc<SymbolicValue>) -> Option<Rc<Path>> {
+        match &ptr.expression {
+            Expression::Reference(path) => Some(path.clone()),
+            Expression::Variable { path, .. } => Some(path.clone()),
+            Expression::Offset { left, right: _ } => {
+                return self.get_ptr_base(left);
+            }
+            _ => None,
+        }
+    }
+
+    // 假设已知来源于同一个指针
+    fn get_ptr_diff(
+        &mut self,
+        ptr1: &Rc<SymbolicValue>,
+        ptr2: &Rc<SymbolicValue>,
+    ) -> Rc<SymbolicValue> {
+        match (&ptr1.expression, &ptr2.expression) {
+            (
+                Expression::Offset { left: _, right },
+                Expression::Offset {
+                    left: _,
+                    right: right2,
+                },
+            ) => {
+                return right2.sub(right.clone());
+            }
+            (_, Expression::Offset { left: _, right }) => {
+                return right.clone();
+            }
+            (Expression::Offset { left: _, right }, _) => {
+                let zero_val = SymbolicValue::make_from(
+                    Expression::CompileTimeConstant(ConstantValue::Int(Integer::from(0))),
+                    1,
+                );
+                return zero_val.sub(right.clone());
+            }
+            (_, _) => {
+                let zero_val = SymbolicValue::make_from(
+                    Expression::CompileTimeConstant(ConstantValue::Int(Integer::from(0))),
+                    1,
+                );
+                return zero_val;
+            }
+        }
+    }
+
+    fn get_type_size(&mut self, base: &Rc<Path>) -> Expression {
+        let target_type = get_element_type(
+            self.block_visitor
+                .body_visitor
+                .type_visitor
+                .get_path_rustc_type(base, self.block_visitor.body_visitor.current_span),
+        );
+        let byte_size = self
+            .block_visitor
+            .body_visitor
+            .type_visitor
+            .get_type_size(target_type);
+        Expression::CompileTimeConstant(ConstantValue::Int(Integer::from(byte_size))).into()
+    }
+
+    fn handle_offset_from(&mut self) -> bool {
+        assert!(self.actual_args.len() == 2);
+        // println!("je");
+        let is_byte = match self.callee_known_name {
+            KnownNames::StdPtrMutPtrOffsetFrom | KnownNames::StdPtrConstPtrOffsetFrom => false,
+            KnownNames::StdPtrMutPtrByteOffsetFrom | KnownNames::StdPtrConstPtrByteOffsetFrom => {
+                true
+            }
+            _ => {
+                return false;
+            }
+        };
+
+        let offset1 = self.actual_args[0].1.clone();
+        let offset2 = self.actual_args[1].1.clone();
+        // println!("offset1: {:?}", offset1);
+        // println!("offset2: {:?}", offset2);
+        // println!("ptr base of offset1: {:?}", self.get_ptr_base(&offset1));
+        // println!("ptr base of offset2: {:?}", self.get_ptr_base(&offset2));
+        // let flag = false;
+        match (self.get_ptr_base(&offset1), self.get_ptr_base(&offset2)) {
+            (None, None) => {
+                return false;
+            }
+            (None, Some(_)) | (Some(_), None) => {}
+            (Some(base1), Some(base2)) => {
+                if *base1 == *base2 {
+                    // 合法处理
+                    let mut result = self.get_ptr_diff(&offset1, &offset2);
+                    if is_byte {
+                        let base = &self.actual_args[0].0.clone();
+                        result = result.mul(SymbolicValue::make_from(self.get_type_size(base), 1));
+                    }
+                    let destination_path = if let Some(dest) = self.destination {
+                        Some(self.block_visitor.get_path_for_place(&dest.0))
+                    } else {
+                        None
+                    };
+                    assert!(destination_path.is_some());
+                    if let Some(target_path) = destination_path {
+                        self.block_visitor
+                            .body_visitor
+                            .state
+                            .update_value_at(target_path.clone(), result);
+                        return true;
+                    }
+                }
+            }
+        }
+        let mut warning = self
+            .block_visitor
+            .body_visitor
+            .context
+            .session
+            .struct_span_warn(
+                self.block_visitor.body_visitor.current_span,
+                format!("[MirChecker] Possible error: the ptr from different object").as_str(),
+            );
+        warning.emit();
+        return true;
+    }
 
     fn handle_byte_offset(&mut self) -> bool {
         assert!(self.actual_args.len() == 2);
@@ -720,6 +847,7 @@ where
             | KnownNames::StdPtrMutPtrByteSub
             | KnownNames::StdPtrConstPtrByteSub => {
                 let offset_val = self.actual_args[1].1.clone();
+
                 let zero_val = SymbolicValue::make_from(
                     Expression::CompileTimeConstant(ConstantValue::Int(Integer::from(0))),
                     1,

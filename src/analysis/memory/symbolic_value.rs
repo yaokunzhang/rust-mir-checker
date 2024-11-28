@@ -17,7 +17,9 @@ use crate::analysis::numerical::apron_domain::{
     ApronAbstractDomain, ApronDomainType, GetManagerTrait,
 };
 use rug::Integer;
+use std::clone::Clone;
 use std::collections::HashSet;
+// use std::f64::consts::E;
 use std::fmt::{Debug, Formatter, Result};
 use std::hash::Hash;
 use std::hash::Hasher;
@@ -515,7 +517,13 @@ impl SymbolicValueTrait for Rc<SymbolicValue> {
             (&self.expression, &other.expression)
         {
             return Rc::new(v1.sub(v2).into());
-        };
+        } 
+        // else if let (Expression::Offset { left, right }, Expression::Offset { left: l, right: r }) =
+        //     (&self.expression, &other.expression)
+        // {
+        //     // SAFETY: assuming that l == left
+        //     return left.offset(right.clone().sub(r.clone()));
+        // }
         SymbolicValue::make_binary(self.clone(), other, |left, right| Expression::Sub {
             left,
             right,
