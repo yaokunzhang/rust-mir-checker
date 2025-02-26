@@ -19,7 +19,6 @@ use crate::analysis::z3_solver::Z3Solver;
 use crate::checker::assertion_checker::AssertionChecker;
 use crate::checker::checker_trait::CheckerTrait;
 //use crate::checker::unsafe_func_checker::UnsafeFuncChecker;
-use itertools::Itertools;
 use log::{debug, error, warn};
 use rug::Integer;
 use rustc_errors::DiagnosticBuilder;
@@ -199,7 +198,7 @@ where
             .into_iter()
             .filter(|(bb, _domain)| self.result_blocks.contains(bb))
             .map(|(_bb, domain)| domain)
-            .fold1(|state1, state2| state1.join(&state2))
+            .reduce(|state1, state2| state1.join(&state2))
     }
 
     pub fn init_promote_constants(&mut self)
@@ -958,7 +957,7 @@ where
         // Merge states using the join operator
         let joined_state = pred_states
             .into_iter()
-            .fold1(|state1, state2| state1.join(&state2))
+            .reduce(|state1, state2| state1.join(&state2))
             .expect("Panic while merging states using fold1");
         debug!("Merged state: {:?}", joined_state);
         joined_state

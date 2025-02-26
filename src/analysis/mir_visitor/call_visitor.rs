@@ -22,7 +22,6 @@ use crate::analysis::numerical::apron_domain::{
 };
 use crate::checker::assertion_checker::{AssertionChecker, CheckerResult};
 use crate::checker::checker_trait::CheckerTrait;
-use itertools::Itertools;
 use rustc_hir::def_id::DefId;
 // use rustc_middle::mir;
 // use rustc_middle::ty::subst::GenericArgsRef;
@@ -189,7 +188,7 @@ where
                 .into_iter()
                 .filter(|(bb, _domain)| body_visitor.result_blocks.contains(bb))
                 .map(|(_bb, domain)| domain)
-                .fold1(|state1, state2| state1.join(&state2))
+                .reduce(|state1, state2| state1.join(&state2))
                 .expect("panic in fold1");
             return joined_state;
         }
