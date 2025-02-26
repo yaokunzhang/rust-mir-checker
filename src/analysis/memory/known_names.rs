@@ -34,8 +34,39 @@ pub enum KnownNames {
 
     VecFromRawParts,
 
-    PtrOffset,
-    PtrByteOffset,
+    StdPtrConstPtrCast,
+    StdPtrConstPtrAdd,
+    StdPtrConstPtrSub,
+    StdPtrConstPtrOffset,
+    StdPtrConstPtrByteAdd,
+    StdPtrConstPtrByteSub,
+    StdPtrConstPtrByteOffset,
+    StdPtrConstPtrWrappingAdd,
+    StdPtrConstPtrWrappingSub,
+    StdPtrConstPtrWrappingOffset,
+    StdPtrConstPtrWrappingByteAdd,
+    StdPtrConstPtrWrappingByteSub,
+    StdPtrConstPtrWrappingByteOffset,
+    StdPtrMutPtrCast,
+    StdPtrMutPtrAdd,
+    StdPtrMutPtrSub,
+    StdPtrMutPtrOffset,
+    StdPtrMutPtrByteAdd,
+    StdPtrMutPtrByteSub,
+    StdPtrMutPtrByteOffset,
+    StdPtrMutPtrWrappingAdd,
+    StdPtrMutPtrWrappingSub,
+    StdPtrMutPtrWrappingOffset,
+    StdPtrMutPtrWrappingByteAdd,
+    StdPtrMutPtrWrappingByteSub,
+    StdPtrMutPtrWrappingByteOffset,
+
+    StdPtrConstPtrOffsetFrom,
+    StdPtrMutPtrOffsetFrom,
+    StdPtrConstPtrByteOffsetFrom,
+    StdPtrMutPtrByteOffsetFrom,
+
+    StdSliceIndexGetUnchecked,
     StdSliceIndexGetUncheckedMut,
 }
 
@@ -134,23 +165,14 @@ impl KnownNamesCache {
                 .unwrap_or(KnownNames::None)
         };
 
-        let get_known_name_for_slice_index_namespace = |mut def_path_data_iter: Iter<'_>| {
-            def_path_data_iter.next();
-            get_path_data_elem_name(def_path_data_iter.next())
-                .map(|n| match n.as_str() {
-                    "get_unchecked_mut" => KnownNames::StdSliceIndexGetUncheckedMut,
-                    _ => KnownNames::None,
-                })
-                .unwrap_or(KnownNames::None)
-        };
-
         let get_known_name_for_slice_namespace = |mut def_path_data_iter: Iter<'_>| {
-            // def_path_data_iter.next();
+            def_path_data_iter.next();
             get_path_data_elem_name(def_path_data_iter.next())
                 .map(|n| match n.as_str() {
                     // not occur
                     "into_vec" => KnownNames::StdIntoVec,
-                    "index" => get_known_name_for_slice_index_namespace(def_path_data_iter),
+                    "get_unchecked_mut" => KnownNames::StdSliceIndexGetUncheckedMut,
+                    "get_unchecked" => KnownNames::StdSliceIndexGetUnchecked,
                     _ => KnownNames::None,
                 })
                 .unwrap_or(KnownNames::None)
@@ -177,12 +199,51 @@ impl KnownNamesCache {
                 .unwrap_or(KnownNames::None)
         };
 
-        let get_known_name_for_ptr_mut_ptr_namespace = |mut def_path_data_iter: Iter<'_>| {
+        let get_known_name_for_ptr_mut_ptr_namespace =|mut def_path_data_iter: Iter<'_>| {
             def_path_data_iter.next();
             get_path_data_elem_name(def_path_data_iter.next())
                 .map(|n| match n.as_str() {
-                    "offset" | "wrapping_offset" => KnownNames::PtrOffset,
-                    "byte_offset" | "wrapping_byte_offset" => KnownNames::PtrByteOffset,
+                    // "write_bytes" => KnownNames::StdIntrinsicsWriteBytes,
+                    "offset_from" => KnownNames::StdPtrConstPtrOffsetFrom,
+                    "byte_offset_from" => KnownNames::StdPtrMutPtrByteOffsetFrom,
+                    "cast" => KnownNames::StdPtrMutPtrCast,
+                    "add" => KnownNames::StdPtrMutPtrAdd,
+                    "sub" => KnownNames::StdPtrMutPtrSub,
+                    "offset" => KnownNames::StdPtrMutPtrOffset,
+                    "byte_add" => KnownNames::StdPtrMutPtrByteAdd,
+                    "byte_sub" => KnownNames::StdPtrMutPtrByteSub,
+                    "byte_offset" => KnownNames::StdPtrMutPtrByteOffset,
+                    "wrapping_add" => KnownNames::StdPtrMutPtrWrappingAdd,
+                    "wrapping_sub" => KnownNames::StdPtrMutPtrWrappingSub,
+                    "wrapping_offset" => KnownNames::StdPtrMutPtrWrappingOffset,
+                    "wrapping_byte_add" => KnownNames::StdPtrMutPtrWrappingByteAdd,
+                    "wrapping_byte_sub" => KnownNames::StdPtrMutPtrWrappingByteSub,
+                    "wrapping_byte_offset" => KnownNames::StdPtrMutPtrWrappingByteOffset,
+                    _ => KnownNames::None,
+                })
+                .unwrap_or(KnownNames::None)
+        };
+
+        let get_known_name_for_ptr_const_ptr_namespace =|mut def_path_data_iter: Iter<'_>| {
+            def_path_data_iter.next();
+            get_path_data_elem_name(def_path_data_iter.next())
+                .map(|n| match n.as_str() {
+                    // "write_bytes" => KnownNames::StdIntrinsicsWriteBytes,
+                    "offset_from" => KnownNames::StdPtrConstPtrOffsetFrom,
+                    "byte_offset_from" => KnownNames::StdPtrMutPtrByteOffsetFrom,
+                    "cast" => KnownNames::StdPtrConstPtrCast,
+                    "add" => KnownNames::StdPtrConstPtrAdd,
+                    "sub" => KnownNames::StdPtrConstPtrSub,
+                    "offset" => KnownNames::StdPtrConstPtrOffset,
+                    "byte_add" => KnownNames::StdPtrConstPtrByteAdd,
+                    "byte_sub" => KnownNames::StdPtrConstPtrByteSub,
+                    "byte_offset" => KnownNames::StdPtrConstPtrByteOffset,
+                    "wrapping_add" => KnownNames::StdPtrConstPtrWrappingAdd,
+                    "wrapping_sub" => KnownNames::StdPtrConstPtrWrappingSub,
+                    "wrapping_offset" => KnownNames::StdPtrConstPtrWrappingOffset,
+                    "wrapping_byte_add" => KnownNames::StdPtrConstPtrWrappingByteAdd,
+                    "wrapping_byte_sub" => KnownNames::StdPtrConstPtrWrappingByteSub,
+                    "wrapping_byte_offset" => KnownNames::StdPtrConstPtrWrappingByteOffset,
                     _ => KnownNames::None,
                 })
                 .unwrap_or(KnownNames::None)
@@ -192,11 +253,13 @@ impl KnownNamesCache {
             get_path_data_elem_name(def_path_data_iter.next())
                 .map(|n| match n.as_str() {
                     "mut_ptr" => get_known_name_for_ptr_mut_ptr_namespace(def_path_data_iter),
-                    "const_ptr" => get_known_name_for_ptr_mut_ptr_namespace(def_path_data_iter),
+                    "const_ptr" => get_known_name_for_ptr_const_ptr_namespace(def_path_data_iter),
                     _ => KnownNames::None,
                 })
                 .unwrap_or(KnownNames::None)
         };
+
+        
 
         let get_known_name_for_known_crate = |mut def_path_data_iter: Iter<'_>| {
             get_path_data_elem_name(def_path_data_iter.next())
@@ -209,7 +272,7 @@ impl KnownNamesCache {
                     "convert" => get_known_name_for_convert_namespace(def_path_data_iter),
                     "vec" => get_known_name_for_vec_namespace(def_path_data_iter),
                     "ptr" => get_known_name_for_ptr_namespace(def_path_data_iter),
-                    // "core"=>
+                    // "core" => get_known_name_for_core_namespace(def_path_data_iter),
                     "mir_checker_verify" => KnownNames::MirCheckerVerify,
                     _ => {
                         debug!("Normal function: {:?}", n.as_str());
