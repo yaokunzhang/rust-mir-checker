@@ -28,7 +28,7 @@ use rustc_hir::def_id::DefId;
 // use rustc_middle::ty::subst::GenericArgsRef;
 // use rustc_middle::ty::{Ty, TyKind};
 use rustc_middle::mir;
-use rustc_middle::ty::{GenericArg, GenericArgKind, GenericArgsRef, Ty, TyKind, UintTy};
+use rustc_middle::ty::{GenericArgsRef, Ty, TyKind};
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter, Result};
 use std::rc::Rc;
@@ -226,7 +226,7 @@ where
                     .get_path_rustc_type(path, self.block_visitor.body_visitor.current_span);
 
                 // 实例化后的Ty, 因为Ty内存在一些泛型参数，要把他们实例化。
-                let specialized_closure_ty = self
+                let _specialized_closure_ty = self
                     .block_visitor
                     .body_visitor
                     .type_visitor
@@ -259,7 +259,7 @@ where
                     }
                     TyKind::Ref(_, ty, _) => {
                         if let TyKind::Closure(def_id, args) = ty.kind() {
-                            let specialized_substs = self
+                            let _specialized_substs = self
                                 .block_visitor
                                 .body_visitor
                                 .type_visitor
@@ -308,6 +308,7 @@ where
     /// this function will update the environment as appropriate and return true. If the return
     /// result is false, just carry on with the normal logic.
     pub fn handled_as_special_function_call(&mut self) -> bool {
+        #[allow(irrefutable_let_patterns)]
         let destination_path = if let dest = self.destination {
             Some(self.block_visitor.get_path_for_place(&dest))
         } else {
@@ -615,6 +616,7 @@ where
     fn handle_into_vec(&mut self) {
         assert!(self.actual_args.len() == 1);
         let source = &self.actual_args[0].0;
+        #[allow(irrefutable_let_patterns)]
         let destination_path = if let dest = self.destination {
             Some(self.block_visitor.get_path_for_place(&dest))
         } else {
@@ -670,6 +672,7 @@ where
     fn handle_from(&mut self) {
         assert!(self.actual_args.len() == 1);
         let source = &self.actual_args[0].0;
+        #[allow(irrefutable_let_patterns)]
         let destination_path = if let dest = self.destination {
             Some(self.block_visitor.get_path_for_place(&dest))
         } else {
@@ -689,6 +692,7 @@ where
     // _3(指针) = offset(_1, _2)
     fn handle_byte_offset(&mut self) -> bool {
         assert!(self.actual_args.len() == 2);
+        #[allow(irrefutable_let_patterns)]
         let destination_path = if let dest = self.destination {
             Some(self.block_visitor.get_path_for_place(&dest))
         } else {
@@ -708,7 +712,7 @@ where
             1,
         );
         let index_val = &self.actual_args[1].1;
-        let result = destination_path.as_ref().unwrap();
+        let _result = destination_path.as_ref().unwrap();
 
         let target_type = get_element_type(
             body_visitor
@@ -779,6 +783,7 @@ where
     // _3(指针) = offset(_1, _2)
     fn handle_offset(&mut self) -> bool {
         assert!(self.actual_args.len() == 2);
+        #[allow(irrefutable_let_patterns)]
         let destination_path = if let dest = self.destination {
             Some(self.block_visitor.get_path_for_place(&dest))
         } else {
@@ -798,7 +803,7 @@ where
             1,
         );
         let index_val = &self.actual_args[1].1;
-        let result = destination_path.as_ref().unwrap();
+        let _result = destination_path.as_ref().unwrap();
 
         let assert_checker = AssertionChecker::new(body_visitor);
         let overflow_safe_cond = SymbolicValue::make_from(
@@ -854,6 +859,7 @@ where
     // _17(place) = index(move _18 move _19])
     fn handle_index(&mut self) {
         assert!(self.actual_args.len() == 2);
+        #[allow(irrefutable_let_patterns)]
         let destination_path = if let dest = self.destination {
             Some(self.block_visitor.get_path_for_place(&dest))
         } else {
@@ -1003,6 +1009,7 @@ where
         self.block_visitor.body_visitor.state = function_post_state.clone();
 
         debug!("Start to transfer and refine normal return state");
+        #[allow(irrefutable_let_patterns)]
         let destination_path = if let dest = self.destination {
             Some(self.block_visitor.get_path_for_place(&dest))
         } else {

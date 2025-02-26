@@ -25,9 +25,8 @@ use rug::Integer;
 use rustc_errors::DiagnosticBuilder;
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir;
-use rustc_middle::ty::{AdtDef, Const, GenericArgsRef, Ty, TyCtxt, TyKind, TypeAndMut, UintTy};
-use rustc_span::sym::format;
-use rustc_span::{ErrorGuaranteed, Span};
+use rustc_middle::ty::{Const, Ty, TyKind};
+use rustc_span::Span;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::rc::Rc;
@@ -837,7 +836,7 @@ where
 
     pub fn emit_diagnostic(
         &mut self,
-        mut diagnostic_builder: DiagnosticBuilder<'compilation, ()>,
+        diagnostic_builder: DiagnosticBuilder<'compilation, ()>,
         is_memory_safety: bool,
         cause: DiagnosticCause,
     ) {

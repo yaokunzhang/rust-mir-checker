@@ -234,6 +234,7 @@ pub fn summary_key_str(tcx: TyCtxt<'_>, def_id: DefId) -> Rc<String> {
         if component.disambiguator != 0 {
             name.push('_');
             if component.data == DefPathData::Impl {
+                #[allow(irrefutable_let_patterns)]
                 if let parent_def_id = tcx.parent(def_id) {
                     if let Some(type_ns) = &type_ns {
                         if type_ns == "num"

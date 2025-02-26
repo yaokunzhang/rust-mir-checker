@@ -599,8 +599,9 @@ where
             self.body_visitor.get_u128_const_val(val)
         }
     }
-
+    
     /// Use for deconstructing `ConstValue::Slice` (i.e., `&[u8]` and `&str`) and `ConstValue::ByRef`
+    #[allow(dead_code)]
     fn deconstruct_constant_array(
         &mut self,
         bytes: &[u8],
@@ -640,6 +641,7 @@ where
         SymbolicValue::make_reference(array_path)
     }
 
+    #[warn(dead_code)]
     fn get_element_values(
         &mut self,
         bytes: &[u8],
@@ -884,6 +886,7 @@ where
     //     }
     // }
 
+    #[allow(dead_code)]
     fn deconstruct_reference_to_constant_array(
         &mut self,
         bytes: &[u8],
@@ -1591,18 +1594,18 @@ where
                 .insert(place, cond_value);
         }
     }
-
-    fn visit_inline_asm(&mut self) {
-        let span = self.body_visitor.current_span;
-        let err = self
-            .body_visitor
-            .context
-            .session
-            .dcx()
-            .struct_span_warn(span, "Inline assembly code is not supported.");
-        self.body_visitor
-            .emit_diagnostic(err, true, DiagnosticCause::Assembly);
-    }
+    
+    // fn visit_inline_asm(&mut self) {
+    //     let span = self.body_visitor.current_span;
+    //     let err = self
+    //         .body_visitor
+    //         .context
+    //         .session
+    //         .dcx()
+    //         .struct_span_warn(span, "Inline assembly code is not supported.");
+    //     self.body_visitor
+    //         .emit_diagnostic(err, true, DiagnosticCause::Assembly);
+    // }
 
     fn visit_rvalue(&mut self, path: Rc<Path>, rvalue: &mir::Rvalue<'tcx>) {
         match rvalue {
@@ -1697,7 +1700,7 @@ where
         //     self.visit_used_operand(index_path, operand);
         // }
         match aggregate_kind {
-            mir::AggregateKind::Array(ty) => {
+            mir::AggregateKind::Array(_ty) => {
                 let length_path = Path::new_length(path.clone());
                 let length_value = self.body_visitor.get_u128_const_val(operands.len() as u128);
                 self.body_visitor
@@ -1716,7 +1719,7 @@ where
                     .body_visitor
                     .type_visitor
                     .get_path_rustc_type(&path, self.body_visitor.current_span);
-                let types = if let TyKind::Tuple(types) = ty.kind() {
+                let _types = if let TyKind::Tuple(types) = ty.kind() {
                     types.as_slice()
                 } else {
                     &[]
@@ -1730,11 +1733,11 @@ where
                     self.visit_use(index_path, operand);
                 }
             }
-            mir::AggregateKind::Adt(def, variant_idx, args, _, case_index) => {
-                let mut path = path;
+            mir::AggregateKind::Adt(def, variant_idx, args, _, _case_index) => {
+                let path = path;
                 let adt_def = self.body_visitor.context.tcx.adt_def(def);
                 let variant_def = &adt_def.variants()[*variant_idx];
-                let adt_ty = self.body_visitor.context.tcx.type_of(def).skip_binder();
+                let _adt_ty = self.body_visitor.context.tcx.type_of(def).skip_binder();
                 if adt_def.is_enum() {
                     // let discr_path = Path::new_discriminant(path.clone());
                     // let discr_ty = adt_ty.discriminant_ty(self.body_visitor.context.tcx);
@@ -1771,7 +1774,7 @@ where
                 }
                 for (i, field) in variant_def.fields.iter().enumerate() {
                     let field_path = Path::new_field(path.clone(), i);
-                    let field_ty = field.ty(self.body_visitor.context.tcx, args);
+                    let _field_ty = field.ty(self.body_visitor.context.tcx, args);
                     // self.type_visitor_mut()
                     //     .set_path_rustc_type(field_path.clone(), field_ty);
                     if let Some(operand) = operands.get(i.into()) {
@@ -1821,7 +1824,7 @@ where
     // E.g. NullaryOp(Box, [usize; 5])
     fn visit_nullary_op(
         &mut self,
-        mut path: Rc<Path>,
+        path: Rc<Path>,
         null_op: mir::NullOp,
         ty: rustc_middle::ty::Ty<'tcx>,
     ) {
@@ -2265,7 +2268,7 @@ where
                         alloc_range(rustc_target::abi::Size::ZERO, size),
                     )
                     .unwrap();
-                let slice = &bytes[0..];
+                let _slice = &bytes[0..];
                 match lty.kind() {
                     // todo: is this case possible? The comment suggests not.
                     TyKind::Array(elem_type, length) => {
