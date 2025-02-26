@@ -1,0 +1,3 @@
+delayed span bug: broken MIR in Item(DefId(0:3 ~ main[d670]::main)) (after phase change to runtime-optimized) at bb1[0]:
+Cannot offset by non-isize type i32
+disabled backtrace

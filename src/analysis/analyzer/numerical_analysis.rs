@@ -52,7 +52,8 @@ impl<'tcx, 'a, 'compiler> StaticAnalysis<'tcx, 'a, 'compiler>
                 let mut res: Vec<&mut Diagnostic<'_>> = Vec::new();
                 for diag in diagnostics.iter_mut() {
                     if suppressed_warnings.contains(&diag.cause) {
-                        diag.cancel();
+                        // diag.cancel();
+                        diag.emit();
                     } else {
                         res.push(diag);
                     }
@@ -71,7 +72,8 @@ impl<'tcx, 'a, 'compiler> StaticAnalysis<'tcx, 'a, 'compiler>
                     if diag.is_memory_safety {
                         res.push(diag);
                     } else {
-                        diag.cancel();
+                        // diag.cancel();
+                        diag.emit();
                     }
                 }
                 res

@@ -48,6 +48,8 @@ The associated paper titled *MirChecker: Detecting Bugs in Rust Programs via Sta
     # Or, you can only build the checker itself:
     $ cargo build
     ```
+    切换rust nightly版本
+    rustup override set nightly-2023-12-30
 
 Note: clang 15 is required because of [this issue with handling anonymous structs in clang 16](https://github.com/rust-lang/rust-bindgen/issues/2312).
 If you cannot find LLVM 15 in your Linux distribution's package manager, you can also download the [precompiled binary](https://github.com/llvm/llvm-project/releases/download/llvmorg-15.0.6/clang+llvm-15.0.6-x86_64-linux-gnu-ubuntu-18.04.tar.xz). For specific usage, please refer to the GitHub actions [build script](.github/workflows/build.yml).

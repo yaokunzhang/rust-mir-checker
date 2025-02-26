@@ -11,7 +11,6 @@ use rustc_hir::def_id::DefId;
 use rustc_hir::definitions::{DefPathData, DisambiguatedDefPathData};
 use rustc_middle::ty::TyCtxt;
 use std::collections::HashMap;
-use std::eprintln;
 use std::iter::Iterator;
 
 /// Well known definitions (language provided items) that are treated in special ways.
@@ -69,7 +68,6 @@ impl KnownNamesCache {
     /// Uses information obtained from tcx to figure out which well known name (if any)
     /// this def id corresponds to.
     fn get_known_name_for(tcx: TyCtxt<'_>, def_id: DefId) -> KnownNames {
-        use std::ops::Deref;
         use DefPathData::*;
 
         // E.g. DefPath { data: [DisambiguatedDefPathData { data: TypeNs("mem"), disambiguator: 0 }, DisambiguatedDefPathData { data: ValueNs("size_of"), disambiguator: 0 }], krate: crate2 }
@@ -94,9 +92,9 @@ impl KnownNamesCache {
             |mut def_path_data_iter: Iter<'_>| match get_path_data_elem_name(
                 def_path_data_iter.next(),
             ) {
-                Some(n) if n.as_str().deref() == "" => {
+                Some(n) if n.as_str() == "" => {
                     get_path_data_elem_name(def_path_data_iter.next())
-                        .map(|n| match n.as_str().deref() {
+                        .map(|n| match n.as_str() {
                             "__rust_alloc" => KnownNames::RustAlloc,
                             "__rust_alloc_zeroed" => KnownNames::RustAllocZeroed,
                             "__rust_dealloc" => KnownNames::RustDealloc,
@@ -110,7 +108,7 @@ impl KnownNamesCache {
 
         let get_known_name_for_mem_namespace = |mut def_path_data_iter: Iter<'_>| {
             get_path_data_elem_name(def_path_data_iter.next())
-                .map(|n| match n.as_str().deref() {
+                .map(|n| match n.as_str() {
                     "size_of" => KnownNames::StdMemSizeOf,
                     _ => KnownNames::None,
                 })
@@ -119,7 +117,7 @@ impl KnownNamesCache {
 
         let get_known_name_for_ops_namespace = |mut def_path_data_iter: Iter<'_>| {
             get_path_data_elem_name(def_path_data_iter.next())
-                .map(|n| match n.as_str().deref() {
+                .map(|n| match n.as_str() {
                     "index" | "index_mut" => KnownNames::CoreOpsIndex,
                     _ => KnownNames::None,
                 })
@@ -128,7 +126,7 @@ impl KnownNamesCache {
 
         let get_known_name_for_panicking_namespace = |mut def_path_data_iter: Iter<'_>| {
             get_path_data_elem_name(def_path_data_iter.next())
-                .map(|n| match n.as_str().deref() {
+                .map(|n| match n.as_str() {
                     "begin_panic" | "panic" => KnownNames::StdPanickingBeginPanic,
                     "begin_panic_fmt" | "panic_fmt" => KnownNames::StdPanickingBeginPanicFmt,
                     _ => KnownNames::None,
@@ -139,7 +137,7 @@ impl KnownNamesCache {
         let get_known_name_for_slice_index_namespace = |mut def_path_data_iter: Iter<'_>| {
             def_path_data_iter.next();
             get_path_data_elem_name(def_path_data_iter.next())
-                .map(|n| match n.as_str().deref() {
+                .map(|n| match n.as_str() {
                     "get_unchecked_mut" => KnownNames::StdSliceIndexGetUncheckedMut,
                     _ => KnownNames::None,
                 })
@@ -149,7 +147,7 @@ impl KnownNamesCache {
         let get_known_name_for_slice_namespace = |mut def_path_data_iter: Iter<'_>| {
             // def_path_data_iter.next();
             get_path_data_elem_name(def_path_data_iter.next())
-                .map(|n| match n.as_str().deref() {
+                .map(|n| match n.as_str() {
                     // not occur
                     "into_vec" => KnownNames::StdIntoVec,
                     "index" => get_known_name_for_slice_index_namespace(def_path_data_iter),
@@ -161,7 +159,7 @@ impl KnownNamesCache {
         let get_known_name_for_convert_namespace = |mut def_path_data_iter: Iter<'_>| {
             def_path_data_iter.next();
             get_path_data_elem_name(def_path_data_iter.next())
-                .map(|n| match n.as_str().deref() {
+                .map(|n| match n.as_str() {
                     "from" => KnownNames::StdFrom,
                     _ => KnownNames::None,
                 })
@@ -171,7 +169,7 @@ impl KnownNamesCache {
         let get_known_name_for_vec_namespace = |mut def_path_data_iter: Iter<'_>| {
             def_path_data_iter.next();
             get_path_data_elem_name(def_path_data_iter.next())
-                .map(|n| match n.as_str().deref() {
+                .map(|n| match n.as_str() {
                     "as_mut_ptr" => KnownNames::StdAsMutPtr,
                     "from_raw_parts" => KnownNames::VecFromRawParts,
                     _ => KnownNames::None,
@@ -182,7 +180,7 @@ impl KnownNamesCache {
         let get_known_name_for_ptr_mut_ptr_namespace = |mut def_path_data_iter: Iter<'_>| {
             def_path_data_iter.next();
             get_path_data_elem_name(def_path_data_iter.next())
-                .map(|n| match n.as_str().deref() {
+                .map(|n| match n.as_str() {
                     "offset" | "wrapping_offset" => KnownNames::PtrOffset,
                     "byte_offset" | "wrapping_byte_offset" => KnownNames::PtrByteOffset,
                     _ => KnownNames::None,
@@ -192,7 +190,7 @@ impl KnownNamesCache {
 
         let get_known_name_for_ptr_namespace = |mut def_path_data_iter: Iter<'_>| {
             get_path_data_elem_name(def_path_data_iter.next())
-                .map(|n| match n.as_str().deref() {
+                .map(|n| match n.as_str() {
                     "mut_ptr" => get_known_name_for_ptr_mut_ptr_namespace(def_path_data_iter),
                     "const_ptr" => get_known_name_for_ptr_mut_ptr_namespace(def_path_data_iter),
                     _ => KnownNames::None,
@@ -202,7 +200,7 @@ impl KnownNamesCache {
 
         let get_known_name_for_known_crate = |mut def_path_data_iter: Iter<'_>| {
             get_path_data_elem_name(def_path_data_iter.next())
-                .map(|n| match n.as_str().deref() {
+                .map(|n| match n.as_str() {
                     "alloc" => get_known_name_for_alloc_namespace(def_path_data_iter),
                     "mem" => get_known_name_for_mem_namespace(def_path_data_iter),
                     "ops" => get_known_name_for_ops_namespace(def_path_data_iter),
@@ -222,7 +220,7 @@ impl KnownNamesCache {
         };
 
         let crate_name = tcx.crate_name(def_id.krate);
-        match crate_name.as_str().deref() {
+        match crate_name.as_str() {
             // Only recognize known functions from the following crates
             "alloc" | "core" | "macros" | "std" => {
                 get_known_name_for_known_crate(def_path_data_iter)

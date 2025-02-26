@@ -11,8 +11,10 @@ use log::info;
 
 use rust_mir_checker::analysis::option;
 use rust_mir_checker::{analysis, utils};
+// use rustc_errors::EarlyErrorHandler;
 use rustc_session::config::ErrorOutputType;
-use rustc_session::early_error;
+use rustc_session::EarlyDiagCtxt;
+//use rustc_session::early_error;
 use std::env;
 use std::process;
 
@@ -31,10 +33,9 @@ fn main() {
             .enumerate()
             .map(|(i, arg)| {
                 arg.into_string().unwrap_or_else(|arg| {
-                    early_error(
-                        ErrorOutputType::default(),
-                        &format!("Argument {} is not valid Unicode: {:?}", i, arg),
-                    )
+                    arg.into_string().unwrap_or_else(|arg| {
+                        panic!("Argument {} is not valid Unicode: {:?}", i, arg);
+                    })
                 })
             })
             .collect::<Vec<_>>();
@@ -50,7 +51,8 @@ fn main() {
 
         // If this environment variable is set, we behave just like the real rustc
         if env::var_os("MIR_CHECKER_BE_RUSTC").is_some() {
-            rustc_driver::init_rustc_env_logger();
+            let early_dcx = EarlyDiagCtxt::new(ErrorOutputType::default());
+            rustc_driver::init_rustc_env_logger(&early_dcx);
             // We cannot use `rustc_driver::main` as we need to adjust the CLI arguments.
             let mut callbacks = rustc_driver::TimePassesCallbacks::default();
             let run_compiler = rustc_driver::RunCompiler::new(&rustc_args, &mut callbacks);

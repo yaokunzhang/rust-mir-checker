@@ -18,7 +18,7 @@ use crate::analysis::wto::{Wto, WtoCircle, WtoVertex, WtoVisitor};
 use crate::analysis::z3_solver::Z3Solver;
 use crate::checker::assertion_checker::AssertionChecker;
 use crate::checker::checker_trait::CheckerTrait;
-use crate::checker::unsafe_func_checker::UnsafeFuncChecker;
+//use crate::checker::unsafe_func_checker::UnsafeFuncChecker;
 use itertools::Itertools;
 use log::{debug, error, warn};
 use rug::Integer;
@@ -26,7 +26,8 @@ use rustc_errors::DiagnosticBuilder;
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir;
 use rustc_middle::ty::{AdtDef, Const, GenericArgsRef, Ty, TyCtxt, TyKind, TypeAndMut, UintTy};
-use rustc_span::Span;
+use rustc_span::sym::format;
+use rustc_span::{ErrorGuaranteed, Span};
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::rc::Rc;
@@ -188,7 +189,8 @@ where
         // Cancel the buffered diagnostics because they have been copied into global context
         // If not, the compiler will emit a bug when dropping them
         for diagnostic in &mut self.buffered_diagnostics {
-            diagnostic.cancel();
+            // diagnostic.cancel();
+            diagnostic.emit();
         }
     }
 
@@ -332,6 +334,14 @@ where
             "Finish initializing promoted constants, init_state: {:?}",
             self.init_state
         );
+    }
+
+    /// Evaluates the length value of an Array type and returns its value as usize
+    pub fn get_array_length(&self, length: &'tcx Const<'tcx>) -> usize {
+        let param_env = self.type_visitor.get_param_env();
+        length
+            .try_eval_target_usize(self.context.tcx, param_env)
+            .expect("Array length constant to have a known value") as usize
     }
 
     fn promote_reference(
@@ -634,7 +644,7 @@ where
             } else {
                 None
             };
-            let ty = self.context.tcx.type_of(def_id);
+            let ty = self.context.tcx.type_of(def_id).skip_binder();
             let func_const = self
                 .crate_context
                 .constant_value_cache
@@ -820,6 +830,7 @@ where
                     self.get_var_name(r)
                 )
             }
+            MisalignedPointerDereference{..} => format!("misaligned pointer dereferenc"),
             _ => format!("{}", assert_kind.description()),
         }
     }
@@ -922,7 +933,7 @@ where
         debug!("Start merging state from predecessors");
         let pred_states: Vec<AbstractDomain<DomainType>> =
             // For all predecessors of bb
-            self.wto.get_mir().predecessors()[bb]
+            self.wto.get_mir().basic_blocks.predecessors()[bb]
                 .iter()
                 .filter_map(|pred_bb| {
                     // For a predecessor pred_bb, get the post condition

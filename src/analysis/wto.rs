@@ -161,7 +161,7 @@ impl<'tcx> Deref for Wto<'tcx> {
 impl<'tcx> Wto<'tcx> {
     pub fn new(cfg: &'tcx Body<'tcx>) -> Self {
         let mut dfn = HashMap::new();
-        for (bb, _) in cfg.basic_blocks().iter_enumerated() {
+        for (bb, _) in cfg.basic_blocks.iter_enumerated() {
             dfn.insert(bb, 0);
         }
         let mut wto = Self {
@@ -200,7 +200,7 @@ impl<'tcx> Wto<'tcx> {
 
     fn component(&mut self, vertex: BasicBlock) -> WtoCircle {
         let mut partition = Vec::new();
-        for succ in self.cfg.successors(vertex) {
+        for succ in self.cfg.basic_blocks.successors(vertex) {
             if self.dfn[&succ] == 0 {
                 self.visit(succ, &mut partition);
             }
@@ -217,7 +217,7 @@ impl<'tcx> Wto<'tcx> {
         let mut head = self.num;
         let mut is_loop = false;
 
-        for succ in self.cfg.successors(vertex) {
+        for succ in self.cfg.basic_blocks.successors(vertex) {
             let min;
             if self.dfn[&succ] == 0 {
                 min = self.visit(succ, partition);

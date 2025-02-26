@@ -82,7 +82,9 @@ impl ConstantValue {
         } else {
             vec![]
         };
+        
         let known_name = known_names_cache.get(tcx, def_id);
+        info!("known_name: {:?}", known_name);
         ConstantValue::Function(Rc::new(FunctionReference {
             def_id: Some(def_id),
             function_id: Some(function_id),

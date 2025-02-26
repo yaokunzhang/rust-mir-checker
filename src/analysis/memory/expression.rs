@@ -12,8 +12,7 @@ use super::path::Path;
 use super::symbolic_value::SymbolicValue;
 use rug::Integer;
 
-use rustc_ast::ast;
-use rustc_middle::ty::{FloatTy, IntTy, Ty, TyCtxt, TyKind, TypeAndMut, UintTy};
+use rustc_middle::ty::{IntTy, Ty, TyCtxt, TyKind, UintTy};
 use std::collections::HashSet;
 use std::fmt::{Debug, Formatter, Result};
 use std::rc::Rc;

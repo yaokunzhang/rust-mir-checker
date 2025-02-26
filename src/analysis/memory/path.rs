@@ -238,14 +238,14 @@ impl Path {
     }
 
     pub fn new_static(tcx: TyCtxt<'_>, def_id: DefId) -> Rc<Path> {
-        let ty = tcx.type_of(def_id);
+        let ty = tcx.type_of(def_id).skip_binder();
         let name = utils::summary_key_str(tcx, def_id);
         Rc::new(
             PathEnum::StaticVariable {
                 def_id: Some(def_id),
                 summary_cache_key: name,
                 expression_type: ExpressionType::from(ty.kind()),
-            }
+            } 
             .into(),
         )
     }

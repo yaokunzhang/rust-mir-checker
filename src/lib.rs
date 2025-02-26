@@ -2,6 +2,7 @@
 #![feature(rustc_private)]
 #![feature(box_patterns)]
 #![feature(core_intrinsics)]
+#![feature(array_chunks)]
 
 extern crate rustc_ast;
 extern crate rustc_data_structures;
@@ -78,7 +79,7 @@ pub mod analysis {
 pub mod checker {
     pub mod assertion_checker;
     pub mod checker_trait;
-    pub mod unsafe_func_checker;
+    // pub mod unsafe_func_checker;
 }
 
 // Useful utilities

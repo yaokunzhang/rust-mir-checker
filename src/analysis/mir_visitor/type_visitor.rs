@@ -59,6 +59,26 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
         }
     }
 
+    /// Returns the size (including padding) and alignment, in bytes,  of an instance of the given type.
+    pub fn get_type_size_and_alignment(&self, ty: Ty<'tcx>) -> (u128, u128) {
+        let param_env = self.get_param_env();
+        if let Ok(ty_and_layout) = self.tcx.layout_of(param_env.and(ty)) {
+            (
+                ty_and_layout.layout.size().bytes() as u128,
+                ty_and_layout.align.pref.bytes() as u128,
+            )
+        } else {
+            (0, 8)
+        }
+    }
+
+    /// Updates the type cache of the visitor so that looking up the type of path returns ty.
+    pub fn set_path_rustc_type(&mut self, path: Rc<Path>, ty: Ty<'tcx>) {
+        self.path_ty_cache.insert(path, ty);
+    }
+
+
+
     // TODO: this is only used in `copy_or_move_subslice`, remove this if not necessary
     /// Returns the size in bytes (including padding) or an element of the given collection type.
     /// If the type is not a collection, it returns one.
@@ -377,6 +397,7 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
                     }
                 },
                 mir::ProjectionElem::Downcast(..) => base_ty,
+                mir::ProjectionElem::OpaqueCast(_) | mir::ProjectionElem::Subtype(_) => todo!(),
             })
     }
 
@@ -387,6 +408,25 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
             ty_and_layout.layout.size.bytes()
         } else {
             0
+        }
+    }
+
+    /// Returns a layout for the given type, if concrete.
+    pub fn layout_of(
+        &self,
+        ty: Ty<'tcx>,
+    ) -> std::result::Result<
+        rustc_middle::ty::layout::TyAndLayout<'tcx>,
+        &'tcx rustc_middle::ty::layout::LayoutError<'tcx>,
+    > {
+        let param_env = self.get_param_env();
+        if utils::is_concrete(ty.kind()) {
+            self.tcx.layout_of(param_env.and(ty))
+        } else {
+            Err(&*self
+                .tcx
+                .arena
+                .alloc(rustc_middle::ty::layout::LayoutError::Unknown(ty)))
         }
     }
 

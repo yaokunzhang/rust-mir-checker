@@ -11,7 +11,7 @@ use crate::analysis::memory::constant_value::ConstantValueCache;
 use crate::analysis::memory::known_names::KnownNamesCache;
 use rustc_errors::DiagnosticBuilder;
 use rustc_hir::def_id::DefId;
-use rustc_middle::ty::{GenericArgsRef, TyCtxt};
+use rustc_middle::ty::GenericArgsRef;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter, Result};
 

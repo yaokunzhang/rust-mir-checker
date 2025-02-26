@@ -226,41 +226,45 @@ where
                     .get_path_rustc_type(path, self.block_visitor.body_visitor.current_span);
 
                 // 实例化后的Ty, 因为Ty内存在一些泛型参数，要把他们实例化。
-                let specialized_closure_ty = 
-                    self.block_visitor.body_visitor.type_visitor.specialize_generic_argument_type(
-                        closure_ty, &self
-                        .block_visitor
-                        .body_visitor
-                        .type_visitor
-                        .generic_argument_map);
-                match closure_ty.kind() {
-                    TyKind::Closure(def_id, args) => {
-                        let specialized_substs = self
+                let specialized_closure_ty = self
+                    .block_visitor
+                    .body_visitor
+                    .type_visitor
+                    .specialize_generic_argument_type(
+                        closure_ty,
+                        &self
                             .block_visitor
                             .body_visitor
                             .type_visitor
-                            .specialize_substs(
-                                substs,
+                            .generic_argument_map,
+                    );
+                match closure_ty.kind() {
+                    TyKind::Closure(def_id, args) => {
+                        let args = self
+                            .block_visitor
+                            .body_visitor
+                            .type_visitor
+                            .specialize_generic_args(
+                                args,
                                 &self
                                     .block_visitor
                                     .body_visitor
                                     .type_visitor
                                     .generic_argument_map,
                             );
-                        return extract_func_ref(self.block_visitor.visit_function_reference(
-                            *def_id,
-                            closure_ty,
-                            specialized_substs,
-                        ));
+                        return extract_func_ref(
+                            self.block_visitor
+                                .visit_function_reference(*def_id, closure_ty, Some(args)),
+                        );
                     }
                     TyKind::Ref(_, ty, _) => {
-                        if let TyKind::Closure(def_id, substs) = ty.kind() {
+                        if let TyKind::Closure(def_id, args) = ty.kind() {
                             let specialized_substs = self
                                 .block_visitor
                                 .body_visitor
                                 .type_visitor
-                                .specialize_substs(
-                                    substs,
+                                .specialize_generic_args(
+                                    args,
                                     &self
                                         .block_visitor
                                         .body_visitor
@@ -269,8 +273,8 @@ where
                                 );
                             return extract_func_ref(self.block_visitor.visit_function_reference(
                                 *def_id,
-                                ty,
-                                specialized_substs,
+                                *ty,
+                                Some(args),
                             ));
                         }
                     }
@@ -304,8 +308,8 @@ where
     /// this function will update the environment as appropriate and return true. If the return
     /// result is false, just carry on with the normal logic.
     pub fn handled_as_special_function_call(&mut self) -> bool {
-        let destination_path = if let Some(dest) = self.destination {
-            Some(self.block_visitor.get_path_for_place(&dest.0))
+        let destination_path = if let dest = self.destination {
+            Some(self.block_visitor.get_path_for_place(&dest))
         } else {
             None
         };
@@ -447,7 +451,7 @@ where
         let length = self.actual_args[0].1.clone();
         let alignment = self.actual_args[1].1.clone();
         let tcx = self.block_visitor.body_visitor.context.tcx;
-        let byte_slice = tcx.mk_slice(tcx.types.u8);
+        let byte_slice = Ty::new_slice(tcx, tcx.types.u8);
         let heap_path = Path::get_as_path(
             self.block_visitor
                 .body_visitor
@@ -611,8 +615,8 @@ where
     fn handle_into_vec(&mut self) {
         assert!(self.actual_args.len() == 1);
         let source = &self.actual_args[0].0;
-        let destination_path = if let Some(dest) = self.destination {
-            Some(self.block_visitor.get_path_for_place(&dest.0))
+        let destination_path = if let dest = self.destination {
+            Some(self.block_visitor.get_path_for_place(&dest))
         } else {
             None
         };
@@ -630,7 +634,7 @@ where
 
     fn handle_from_raw_parts(&mut self) {
         assert!(self.actual_args.len() == 3);
-        assert!(self.destination.is_some());
+        // assert!(self.destination.is_some());
         let block_visitor = &mut self.block_visitor;
         // Vec::from_raw_parts captures the ownership and passes it to the `destination`
         // So we keep track of it in `tainted_variables`
@@ -647,17 +651,17 @@ where
         block_visitor
             .body_visitor
             .tainted_variables
-            .insert(self.destination.unwrap().0.local);
+            .insert(self.destination.local);
     }
 
     fn handle_panic(&mut self) {
         assert!(self.actual_args.len() == 1);
-        assert!(self.destination.is_none());
+        // assert!(self.destination.is_none());
         let body_visitor = &mut self.block_visitor.body_visitor;
         if !body_visitor.state.is_bottom() {
             let warning = body_visitor.context.session.dcx().struct_span_warn(
                 body_visitor.current_span,
-                format!("[MirChecker] Possible error: run into panic code").as_str(),
+                format!("[MirChecker] Possible error: run into panic code"),
             );
             body_visitor.emit_diagnostic(warning, false, DiagnosticCause::Panic);
         }
@@ -666,12 +670,12 @@ where
     fn handle_from(&mut self) {
         assert!(self.actual_args.len() == 1);
         let source = &self.actual_args[0].0;
-        let destination_path = if let Some(dest) = self.destination {
-            Some(self.block_visitor.get_path_for_place(&dest.0))
+        let destination_path = if let dest = self.destination {
+            Some(self.block_visitor.get_path_for_place(&dest))
         } else {
             None
         };
-        assert!(destination_path.is_some());
+        // assert!(destination_path.is_some());
         let result = destination_path.as_ref().unwrap();
 
         let body_visitor = &mut self.block_visitor.body_visitor;
@@ -685,8 +689,8 @@ where
     // _3(指针) = offset(_1, _2)
     fn handle_byte_offset(&mut self) -> bool {
         assert!(self.actual_args.len() == 2);
-        let destination_path = if let Some(dest) = self.destination {
-            Some(self.block_visitor.get_path_for_place(&dest.0))
+        let destination_path = if let dest = self.destination {
+            Some(self.block_visitor.get_path_for_place(&dest))
         } else {
             None
         };
@@ -706,18 +710,13 @@ where
         let index_val = &self.actual_args[1].1;
         let result = destination_path.as_ref().unwrap();
 
-        
-
         let target_type = get_element_type(
             body_visitor
                 .type_visitor
                 .get_path_rustc_type(array, body_visitor.current_span),
         );
-        let byte_size = body_visitor
-            .type_visitor
-            .get_type_size(target_type);
-        let byte_size_value =body_visitor
-            .get_u128_const_val(byte_size as u128);
+        let byte_size = body_visitor.type_visitor.get_type_size(target_type);
+        let byte_size_value = body_visitor.get_u128_const_val(byte_size as u128);
 
         let assert_checker = AssertionChecker::new(body_visitor);
 
@@ -741,7 +740,7 @@ where
             CheckerResult::Unsafe => {
                 let mut error = body_visitor.context.session.dcx().struct_span_warn(
                     body_visitor.current_span,
-                    format!("[MirChecker] Provably error: index out of bound",).as_str(),
+                    format!("[MirChecker] Provably error: index out of bound",),
                 );
                 error.emit();
                 // body_visitor.emit_diagnostic(error, false, DiagnosticCause::Index);
@@ -750,7 +749,7 @@ where
             CheckerResult::Warning => {
                 let mut warning = body_visitor.context.session.dcx().struct_span_warn(
                     body_visitor.current_span,
-                    format!("[MirChecker] Possible error: index out of bound").as_str(),
+                    format!("[MirChecker] Possible error: index out of bound"),
                 );
                 warning.emit();
                 // body_visitor.emit_diagnostic(warning, false, DiagnosticCause::Index);
@@ -780,8 +779,8 @@ where
     // _3(指针) = offset(_1, _2)
     fn handle_offset(&mut self) -> bool {
         assert!(self.actual_args.len() == 2);
-        let destination_path = if let Some(dest) = self.destination {
-            Some(self.block_visitor.get_path_for_place(&dest.0))
+        let destination_path = if let dest = self.destination {
+            Some(self.block_visitor.get_path_for_place(&dest))
         } else {
             None
         };
@@ -816,7 +815,7 @@ where
             CheckerResult::Unsafe => {
                 let mut error = body_visitor.context.session.dcx().struct_span_warn(
                     body_visitor.current_span,
-                    format!("[MirChecker] Provably error: index out of bound",).as_str(),
+                    format!("[MirChecker] Provably error: index out of bound",),
                 );
                 error.emit();
                 // body_visitor.emit_diagnostic(error, false, DiagnosticCause::Index);
@@ -825,7 +824,7 @@ where
             CheckerResult::Warning => {
                 let mut warning = body_visitor.context.session.dcx().struct_span_warn(
                     body_visitor.current_span,
-                    format!("[MirChecker] Possible error: index out of bound").as_str(),
+                    format!("[MirChecker] Possible error: index out of bound"),
                 );
                 warning.emit();
                 // body_visitor.emit_diagnostic(warning, false, DiagnosticCause::Index);
@@ -855,8 +854,8 @@ where
     // _17(place) = index(move _18 move _19])
     fn handle_index(&mut self) {
         assert!(self.actual_args.len() == 2);
-        let destination_path = if let Some(dest) = self.destination {
-            Some(self.block_visitor.get_path_for_place(&dest.0))
+        let destination_path = if let dest = self.destination {
+            Some(self.block_visitor.get_path_for_place(&dest))
         } else {
             None
         };
@@ -891,7 +890,7 @@ where
             CheckerResult::Unsafe => {
                 let error = body_visitor.context.session.dcx().struct_span_warn(
                     body_visitor.current_span,
-                    format!("[MirChecker] Provably error: index out of bound",).as_str(),
+                    format!("[MirChecker] Provably error: index out of bound",),
                 );
                 body_visitor.emit_diagnostic(error, false, DiagnosticCause::Index);
                 return;
@@ -899,7 +898,7 @@ where
             CheckerResult::Warning => {
                 let warning = body_visitor.context.session.dcx().struct_span_warn(
                     body_visitor.current_span,
-                    format!("[MirChecker] Possible error: index out of bound").as_str(),
+                    format!("[MirChecker] Possible error: index out of bound"),
                 );
                 body_visitor.emit_diagnostic(warning, false, DiagnosticCause::Index);
             }
@@ -1004,8 +1003,8 @@ where
         self.block_visitor.body_visitor.state = function_post_state.clone();
 
         debug!("Start to transfer and refine normal return state");
-        let destination_path = if let Some(dest) = self.destination {
-            Some(self.block_visitor.get_path_for_place(&dest.0))
+        let destination_path = if let dest = self.destination {
+            Some(self.block_visitor.get_path_for_place(&dest))
         } else {
             None
         };
