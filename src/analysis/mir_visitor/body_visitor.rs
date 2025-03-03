@@ -21,7 +21,7 @@ use crate::checker::checker_trait::CheckerTrait;
 //use crate::checker::unsafe_func_checker::UnsafeFuncChecker;
 use log::{debug, error, warn};
 use rug::Integer;
-use rustc_errors::DiagnosticBuilder;
+use rustc_errors::Diag;
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir;
 use rustc_middle::ty::{Const, Ty, TyKind};
@@ -100,7 +100,7 @@ where
     pub z3_solver: Z3Solver,
 
     // Buffered diagnostics
-    pub buffered_diagnostics: Vec<Diagnostic<'compilation>>,
+    pub buffered_diagnostics: Vec<Option<Diagnostic<'compilation>>>,
 }
 
 impl<'tcx, 'a, 'compilation, DomainType> WtoFixPointIterator<'tcx, 'a, 'compilation, DomainType>
@@ -179,17 +179,16 @@ where
         // let mut unsafe_func_checker = UnsafeFuncChecker::<DomainType>::new(self);
         // unsafe_func_checker.run();
 
+        let buffered_diagnostics: Vec<Option<Diagnostic<'compilation>>> = self
+            .buffered_diagnostics
+            .iter_mut()
+            .map(|d| d.take()) // 只解包 Some 值，忽略 None
+            .collect();
+
         // Store diagnostic messages for this function
         self.context
             .diagnostics_for
-            .insert(self.def_id, self.buffered_diagnostics.clone());
-
-        // Cancel the buffered diagnostics because they have been copied into global context
-        // If not, the compiler will emit a bug when dropping them
-        for diagnostic in &mut self.buffered_diagnostics {
-            // diagnostic.cancel();
-            diagnostic.emit();
-        }
+            .insert(self.def_id, buffered_diagnostics);
     }
 
     pub fn get_exit_state(&self) -> Option<AbstractDomain<DomainType>> {
@@ -336,9 +335,8 @@ where
 
     /// Evaluates the length value of an Array type and returns its value as usize
     pub fn get_array_length(&self, length: &'tcx Const<'tcx>) -> usize {
-        let param_env = self.type_visitor.get_param_env();
         length
-            .try_eval_target_usize(self.context.tcx, param_env)
+            .try_to_target_usize(self.context.tcx)
             .expect("Array length constant to have a known value") as usize
     }
 
@@ -828,14 +826,14 @@ where
                     self.get_var_name(r)
                 )
             }
-            MisalignedPointerDereference{..} => format!("misaligned pointer dereferenc"),
-            _ => format!("{}", assert_kind.description()),
+            MisalignedPointerDereference { .. } => format!("misaligned pointer dereferenc"),
+            _ => format!("{:?}", assert_kind),
         }
     }
 
     pub fn emit_diagnostic(
         &mut self,
-        diagnostic_builder: DiagnosticBuilder<'compilation, ()>,
+        diagnostic_builder: Diag<'compilation, ()>,
         is_memory_safety: bool,
         cause: DiagnosticCause,
     ) {
@@ -852,7 +850,7 @@ where
             }
         }
         let diagnostic = Diagnostic::new(diagnostic_builder, is_memory_safety, cause);
-        self.buffered_diagnostics.push(diagnostic);
+        self.buffered_diagnostics.push(Some(diagnostic));
     }
 
     // The following are private methods

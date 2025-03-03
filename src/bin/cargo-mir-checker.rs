@@ -1,3 +1,5 @@
+#![feature(rustc_private)]
+
 /// This file is derived from miri:
 /// https://github.com/rust-lang/miri/blob/master/src/bin/cargo-miri.rs
 use rust_mir_checker::utils;

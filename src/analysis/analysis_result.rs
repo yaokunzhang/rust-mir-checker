@@ -17,6 +17,7 @@ impl fmt::Debug for AnalysisError {
     }
 }
 
+#[allow(non_local_definitions)]
 #[derive(Fail)]
 pub enum AnalysisError {
     #[fail(display = "Analysis timeout")]

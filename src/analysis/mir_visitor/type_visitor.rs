@@ -22,7 +22,6 @@ use rustc_middle::mir;
 use rustc_middle::ty::{
     AdtDef, ExistentialPredicate, ExistentialProjection, ExistentialTraitRef,
     FnSig, GenericArg, GenericArgKind, GenericArgs, GenericArgsRef, ParamTy, Ty, TyCtxt, TyKind,
-    TypeAndMut,
 };
 use rustc_target::abi::FieldIdx;
 
@@ -61,14 +60,34 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
 
     /// Returns the size (including padding) and alignment, in bytes,  of an instance of the given type.
     pub fn get_type_size_and_alignment(&self, ty: Ty<'tcx>) -> (u128, u128) {
-        let param_env = self.get_param_env();
-        if let Ok(ty_and_layout) = self.tcx.layout_of(param_env.and(ty)) {
+        if let Ok(ty_and_layout) = self.layout_of(ty) {
             (
                 ty_and_layout.layout.size().bytes() as u128,
                 ty_and_layout.align.pref.bytes() as u128,
             )
         } else {
             (0, 8)
+        }
+    }
+
+    pub fn get_typing_env_for(&self, def_id: DefId) -> rustc_middle::ty::TypingEnv<'tcx> {
+        let env_def_id = if self.tcx.is_closure_like(def_id) {
+            self.tcx.typeck_root_def_id(def_id)
+        } else {
+            def_id
+        };
+        let param_env = self.tcx.param_env(env_def_id);
+        rustc_middle::ty::TypingEnv {
+            typing_mode: rustc_middle::ty::TypingMode::PostAnalysis,
+            param_env,
+        }
+    }
+
+    pub fn get_typing_env(&self) -> rustc_middle::ty::TypingEnv<'tcx> {
+        let param_env = self.get_param_env();
+        rustc_middle::ty::TypingEnv {
+            typing_mode: rustc_middle::ty::TypingMode::PostAnalysis,
+            param_env,
         }
     }
 
@@ -79,20 +98,19 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
 
 
 
-    // TODO: this is only used in `copy_or_move_subslice`, remove this if not necessary
-    /// Returns the size in bytes (including padding) or an element of the given collection type.
+    /// Returns the size in bytes (including padding) of an element of the given collection type.
     /// If the type is not a collection, it returns one.
     pub fn get_elem_type_size(&self, ty: Ty<'tcx>) -> u64 {
         match ty.kind() {
             TyKind::Array(ty, _) | TyKind::Slice(ty) => self.get_type_size(*ty),
-            TyKind::RawPtr(t) => self.get_type_size(t.ty),
+            TyKind::RawPtr(ty, _) => self.get_type_size(*ty),
             _ => 1,
         }
     }
 
     /// Returns a parameter environment for the current function.
     pub fn get_param_env(&self) -> rustc_middle::ty::ParamEnv<'tcx> {
-        let env_def_id = if self.tcx.is_closure(self.def_id) {
+        let env_def_id = if self.tcx.is_closure_like(self.def_id) {
             self.tcx.typeck_root_def_id(self.def_id)
         } else {
             self.def_id
@@ -173,18 +191,12 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
                             }
                             TyKind::Closure(def_id, args) => {
                                 let closure_substs = args.as_closure();
-                                if closure_substs.is_valid() {
-                                    return *closure_substs
-                                        .upvar_tys()
-                                        .get(*ordinal)
-                                        .unwrap_or_else(|| {
-                                            info!(
-                                                "closure field not found {:?} {:?}",
-                                                def_id, ordinal
-                                            );
-                                            &self.tcx.types.never
-                                        });
-                                }
+                                return *closure_substs.upvar_tys().get(*ordinal).unwrap_or_else(
+                                    || {
+                                        info!("closure field not found {:?} {:?}", def_id, ordinal);
+                                        &self.tcx.types.never
+                                    },
+                                );
                             }
                             TyKind::Tuple(types) => {
                                 if let Some(ty) = types.get(*ordinal) {
@@ -345,10 +357,8 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
                         return Ty::new_ref(
                             self.tcx,
                             *region,
-                            rustc_middle::ty::TypeAndMut {
-                                ty: self.actual_argument_types[0],
-                                mutbl: *mutbl,
-                            },
+                            self.actual_argument_types[0],
+                            *mutbl,
                         );
                     }
                 }
@@ -370,7 +380,7 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
             .fold(base_ty, |base_ty, projection_elem| match projection_elem {
                 mir::ProjectionElem::Deref => match &base_ty.kind() {
                     TyKind::Adt(..) => base_ty,
-                    TyKind::RawPtr(ty_and_mut) => ty_and_mut.ty,
+                    TyKind::RawPtr(ty, _) => *ty,
                     TyKind::Ref(_, ty, _) => *ty,
                     _ => {
                         debug!(
@@ -403,9 +413,8 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
 
     /// Returns the size in bytes (including padding) of an instance of the given type.
     pub fn get_type_size(&self, ty: Ty<'tcx>) -> u64 {
-        let param_env = self.get_param_env();
-        if let Ok(ty_and_layout) = self.tcx.layout_of(param_env.and(ty)) {
-            ty_and_layout.layout.size.bytes()
+        if let Ok(ty_and_layout) = self.layout_of(ty) {
+            ty_and_layout.layout.size().bytes()
         } else {
             0
         }
@@ -419,9 +428,9 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
         rustc_middle::ty::layout::TyAndLayout<'tcx>,
         &'tcx rustc_middle::ty::layout::LayoutError<'tcx>,
     > {
-        let param_env = self.get_param_env();
+        let typing_env = self.get_typing_env();
         if utils::is_concrete(ty.kind()) {
-            self.tcx.layout_of(param_env.and(ty))
+            self.tcx.layout_of(typing_env.as_query_input(ty))
         } else {
             Err(&*self
                 .tcx
@@ -464,12 +473,12 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
             let specialized_substs = self.specialize_generic_args(projection.args, map);
             let item_def_id = projection.def_id;
             return if utils::are_concrete(specialized_substs) {
-                let param_env = self
-                    .tcx
-                    .param_env(self.tcx.associated_item(item_def_id).container_id(self.tcx));
-                if let Ok(Some(instance)) = rustc_middle::ty::Instance::resolve(
+                let typing_env = self.get_typing_env_for(
+                    self.tcx.associated_item(item_def_id).container_id(self.tcx),
+                );
+                if let Ok(Some(instance)) = rustc_middle::ty::Instance::try_resolve(
                     self.tcx,
-                    param_env,
+                    typing_env,
                     item_def_id,
                     specialized_substs,
                 ) {
@@ -491,7 +500,7 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
                     if projection_trait == self.tcx.lang_items().pointee_trait() {
                         // assume!(!specialized_substs.is_empty());
                         if let GenericArgKind::Type(ty) = specialized_substs[0].unpack() {
-                            return ty.ptr_metadata_ty(self.tcx, |ty| ty).0;
+                            return ty.ptr_metadata_ty(self.tcx, |ty| ty);
                         }
                     } else if projection_trait == self.tcx.lang_items().discriminant_kind_trait() {
                         // assume!(!specialized_substs.is_empty());
@@ -524,31 +533,23 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
                 let specialized_elem_ty = self.specialize_generic_argument_type(*elem_ty, map);
                 Ty::new_slice(self.tcx, specialized_elem_ty)
             }
-            TyKind::RawPtr(rustc_middle::ty::TypeAndMut { ty, mutbl }) => {
+            TyKind::RawPtr(ty, mutbl) => {
                 let specialized_ty = self.specialize_generic_argument_type(*ty, map);
                 Ty::new_ptr(
                     self.tcx,
-                    rustc_middle::ty::TypeAndMut {
-                        ty: specialized_ty,
-                        mutbl: *mutbl,
-                    },
+                    specialized_ty, 
+                    *mutbl
                 )
             }
             TyKind::Ref(region, ty, mutbl) => {
                 let specialized_ty = self.specialize_generic_argument_type(*ty, map);
-                Ty::new_ref(
-                    self.tcx,
-                    *region,
-                    rustc_middle::ty::TypeAndMut {
-                        ty: specialized_ty,
-                        mutbl: *mutbl,
-                    },
-                )
+                Ty::new_ref(self.tcx, *region, specialized_ty, *mutbl)
             }
             TyKind::FnDef(def_id, args) => {
                 Ty::new_fn_def(self.tcx, *def_id, self.specialize_generic_args(args, map))
             }
-            TyKind::FnPtr(fn_sig) => {
+            TyKind::FnPtr(sig_tys, hdr) => {
+                let fn_sig = sig_tys.with(*hdr);
                 let map_fn_sig = |fn_sig: FnSig<'tcx>| {
                     let specialized_inputs_and_output = self.tcx.mk_type_list_from_iter(
                         fn_sig
@@ -559,7 +560,7 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
                     FnSig {
                         inputs_and_output: specialized_inputs_and_output,
                         c_variadic: fn_sig.c_variadic,
-                        unsafety: fn_sig.unsafety,
+                        safety: fn_sig.safety,
                         abi: fn_sig.abi,
                     }
                 };
@@ -570,29 +571,41 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
                 let specialized_predicates = predicates.iter().map(
                     |bound_pred: rustc_middle::ty::Binder<'_, ExistentialPredicate<'tcx>>| {
                         bound_pred.map_bound(|pred| match pred {
-                            ExistentialPredicate::Trait(ExistentialTraitRef { def_id, args }) => {
-                                ExistentialPredicate::Trait(ExistentialTraitRef {
+                            ExistentialPredicate::Trait(ExistentialTraitRef {
+                                def_id,
+                                args,
+                                ..
+                            }) => {
+                                ExistentialPredicate::Trait(ExistentialTraitRef::new_from_args(
+                                    self.tcx,
                                     def_id,
-                                    args: self.specialize_generic_args(args, map),
-                                })
+                                    self.specialize_generic_args(args, map),
+                                ))
                             }
                             ExistentialPredicate::Projection(ExistentialProjection {
                                 def_id,
                                 args,
                                 term,
+                                ..
                             }) => {
-                                if let Some(ty) = term.ty() {
-                                    ExistentialPredicate::Projection(ExistentialProjection {
-                                        def_id,
-                                        args: self.specialize_generic_args(args, map),
-                                        term: self.specialize_generic_argument_type(ty, map).into(),
-                                    })
+                                if let Some(ty) = term.as_type() {
+                                    ExistentialPredicate::Projection(
+                                        ExistentialProjection::new_from_args(
+                                            self.tcx,
+                                            def_id,
+                                            self.specialize_generic_args(args, map),
+                                            self.specialize_generic_argument_type(ty, map).into(),
+                                        ),
+                                    )
                                 } else {
-                                    ExistentialPredicate::Projection(ExistentialProjection {
-                                        def_id,
-                                        args: self.specialize_generic_args(args, map),
-                                        term,
-                                    })
+                                    ExistentialPredicate::Projection(
+                                        ExistentialProjection::new_from_args(
+                                            self.tcx,
+                                            def_id,
+                                            self.specialize_generic_args(args, map),
+                                            term,
+                                        ),
+                                    )
                                 }
                             }
                             ExistentialPredicate::AutoTrait(_) => pred,
@@ -695,7 +708,7 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
     // TODO: this is only used in promote constant, remove it if not necessary
     pub fn starts_with_slice_pointer(&self, ty_kind: &TyKind<'tcx>) -> bool {
         match ty_kind {
-            TyKind::RawPtr(TypeAndMut { ty: target, .. }) | TyKind::Ref(_, target, _) => {
+            TyKind::RawPtr(target, _) | TyKind::Ref(_, target, _) => {
                 // Pointers to sized arrays are thin pointers.
                 matches!(target.kind(), TyKind::Slice(..))
             }
@@ -748,13 +761,13 @@ pub fn is_union(ty: Ty<'_>) -> bool {
 
 pub fn get_target_type(ty: Ty<'_>) -> Ty<'_> {
     match ty.kind() {
-        TyKind::RawPtr(TypeAndMut { ty: t, .. }) | TyKind::Ref(_, t, _) => *t,
+        TyKind::RawPtr(t, _) | TyKind::Ref(_, t, _) => *t,
         _ => ty,
     }
 }
 
 pub fn is_slice_pointer(ty_kind: &TyKind<'_>) -> bool {
-    if let TyKind::RawPtr(TypeAndMut { ty: target, .. }) | TyKind::Ref(_, target, _) = ty_kind {
+    if let TyKind::RawPtr(target, _) | TyKind::Ref(_, target, _) = ty_kind {
         // Pointers to sized arrays and slice pointers are thin pointers.
         matches!(target.kind(), TyKind::Slice(..) | TyKind::Str)
     } else {

@@ -1,4 +1,4 @@
-use rustc_errors::DiagnosticBuilder;
+use rustc_errors::Diag;
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir;
 use std::cmp::Ordering;
@@ -31,11 +31,16 @@ impl<O> From<&mir::AssertKind<O>> for DiagnosticCause {
                 Shr | Shl | BitXor | BitAnd | BitOr => DiagnosticCause::Bitwise,
                 Eq | Lt | Le | Ne | Ge | Gt => DiagnosticCause::Comparison,
                 Offset => DiagnosticCause::Index,
+                // TODO: handle these cases
                 AddUnchecked => todo!(),
                 SubUnchecked => todo!(),
                 MulUnchecked => todo!(),
                 ShlUnchecked => todo!(),
                 ShrUnchecked => todo!(),
+                AddWithOverflow => todo!(),
+                SubWithOverflow => todo!(),
+                MulWithOverflow => todo!(),
+                Cmp => todo!(),    
             },
             mir::AssertKind::OverflowNeg(..) => DiagnosticCause::Arithmetic,
             mir::AssertKind::DivisionByZero(..) | mir::AssertKind::RemainderByZero(..) => {
@@ -46,17 +51,17 @@ impl<O> From<&mir::AssertKind<O>> for DiagnosticCause {
     }
 }
 
-/// A diagnosis, which consists of the `DiagnosticBuilder` and more information about it
-#[derive(Clone)]
+/// A diagnosis, which consists of the `Diag` and more information about it
+// #[derive(Clone)]
 pub struct Diagnostic<'compiler> {
-    pub builder: DiagnosticBuilder<'compiler, ()>,
+    pub builder: Diag<'compiler, ()>,
     pub is_memory_safety: bool,
     pub cause: DiagnosticCause,
 }
 
 impl<'compiler> Diagnostic<'compiler> {
     pub fn new(
-        builder: DiagnosticBuilder<'compiler, ()>,
+        builder: Diag<'compiler, ()>,
         is_memory_safety: bool,
         cause: DiagnosticCause,
     ) -> Self {
@@ -67,15 +72,15 @@ impl<'compiler> Diagnostic<'compiler> {
         }
     }
 
-    pub fn cancel(&mut self) {
-        self.builder.clone().cancel();
+    pub fn cancel(self) {
+        self.builder.cancel();
     }
 
-    pub fn emit(&mut self) {
+    pub fn emit(self) {
         self.builder.emit();
     }
 
-    pub fn compare(x: &&mut Diagnostic<'compiler>, y: &&mut Diagnostic<'compiler>) -> Ordering {
+    pub fn compare(x: & Diagnostic<'compiler>, y: & Diagnostic<'compiler>) -> Ordering {
         if x.builder
             .span
             .primary_spans()
@@ -97,7 +102,7 @@ impl<'compiler> Diagnostic<'compiler> {
 
 /// Store all the diagnoses generated for each `DefId`
 pub struct DiagnosticsForDefId<'compiler> {
-    pub map: HashMap<DefId, Vec<Diagnostic<'compiler>>>,
+    pub map: HashMap<DefId, Vec<Option<Diagnostic<'compiler>>>>,
 }
 
 impl<'compiler> Default for DiagnosticsForDefId<'compiler> {
@@ -109,7 +114,7 @@ impl<'compiler> Default for DiagnosticsForDefId<'compiler> {
 }
 
 impl<'compiler> DiagnosticsForDefId<'compiler> {
-    pub fn insert(&mut self, id: DefId, diags: Vec<Diagnostic<'compiler>>) {
+    pub fn insert(&mut self, id: DefId, diags: Vec<Option<Diagnostic<'compiler>>>) {
         self.map.insert(id, diags);
     }
 }

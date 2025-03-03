@@ -27,15 +27,16 @@ use crate::analysis::numerical::apron_domain::{
 use crate::analysis::numerical::linear_constraint::LinearConstraintSystem;
 use crate::analysis::z3_solver::SmtResult;
 use rug::Integer;
+use rustc_infer::infer::TyCtxtInferExt;
+use rustc_span::source_map::Spanned;
 use rustc_target::abi::{FieldIdx, Primitive, TagEncoding, VariantIdx, Variants};
 use rustc_hir::def_id::DefId;
 use rustc_index::{Idx, IndexVec};
 use rustc_middle::mir::{self, ConstValue};
 use rustc_middle::mir::interpret::{alloc_range, GlobalAlloc, Scalar};
 use rustc_middle::mir::UnwindTerminateReason;
-use rustc_middle::ty::layout::LayoutCx;
 use rustc_middle::ty::{
-    Const, IntTy, ParamConst, ScalarInt, Ty, TyKind, UintTy, ValTree,
+    Const, CoroutineArgsExt, IntTy, ParamConst, ScalarInt, Ty, TyKind, TypingMode, UintTy, ValTree
 };
 
 use rustc_middle::ty::GenericArgsRef;
@@ -125,7 +126,7 @@ where
     }
 
     fn visit_statement(&mut self, statement: &mir::Statement<'tcx>) {
-        let mir::Statement { kind, .. } = statement;
+        let mir::Statement { kind, source_info } = statement;
         // Ignore the following to reduce logging
         if matches!(
             kind,
@@ -163,6 +164,14 @@ where
         //     // The rest are ignored
         //     _ => (),
         // }
+
+        if matches!(
+            kind,
+            mir::StatementKind::Assign(..)
+                | mir::StatementKind::SetDiscriminant { .. }
+        ) {
+            self.body_visitor.current_span = source_info.span;
+        }
 
         match kind {
             mir::StatementKind::Assign(box (place, rvalue)) => self.visit_assign(place, rvalue),
@@ -212,7 +221,7 @@ where
         debug!("Visiting terminator: {:?}", terminator);
 
         // Comment this line because terminators do not provide useful span information
-        // self.body_visitor.current_span = source_info.span;
+        self.body_visitor.current_span = source_info.span;
 
         match kind {
             // mir::TerminatorKind::SwitchInt {
@@ -306,27 +315,29 @@ where
             .type_visitor
             .get_rustc_place_type(place, self.body_visitor.current_span);
 
-        let param_env = self.body_visitor.type_visitor.get_param_env();
-        if let Ok(ty_and_layout) = self.body_visitor.context.tcx.layout_of(param_env.and(ty)) {
-            let discr_ty = ty_and_layout
-                .ty
-                .discriminant_ty(self.body_visitor.context.tcx);
-            let discr_bits = match ty_and_layout
-                .ty
-                .discriminant_for_variant(self.body_visitor.context.tcx, variant_index)
-            {
-                Some(discr) => discr.val,
-                None => variant_index.as_u32() as u128,
-            };
-            let val = self.get_int_const_val(discr_bits, discr_ty);
-            self.body_visitor.state.update_value_at(target_path, val);
-            return;
+        // let param_env = self.body_visitor.type_visitor.get_param_env();
+        
+        match ty.kind() {
+            TyKind::Adt(..) | TyKind::Coroutine(..) => {
+                let discr_ty = ty
+                    .discriminant_ty(self.body_visitor.context.tcx);
+                let discr_bits = match ty
+                    .discriminant_for_variant(self.body_visitor.context.tcx, variant_index)
+                {
+                    Some(discr) => discr.val,
+                    None => variant_index.as_u32() as u128,
+                };
+                let val = self.get_int_const_val(discr_bits, discr_ty);
+                self.body_visitor.state.update_value_at(target_path, val);
+                
+                return;
+            }
+            _ => panic!("rustc should ensure this"),
         }
-
-        let index_val: ConstantValue = Integer::from(variant_index.as_usize()).into();
-        self.body_visitor
-            .state
-            .update_value_at(target_path, Rc::new(index_val.into()));
+        // let index_val: ConstantValue = Integer::from(variant_index.as_usize()).into();
+        // self.body_visitor
+        //     .state
+        //     .update_value_at(target_path, Rc::new(index_val.into()));
     }
 
     fn propagate_taint(&mut self, place: &mir::Place<'tcx>, rvalue: &mir::Rvalue<'tcx>) {
@@ -359,11 +370,11 @@ where
             Use(operand) | Repeat(operand, _) | Cast(_, operand, _) | UnaryOp(_, operand) => {
                 self.extract_local_from_operand(operand)
             }
-            Ref(_, _, place) | AddressOf(_, place) | Len(place) | Discriminant(place) => {
+            Ref(_, _, place) | Discriminant(place) => {
                 Some(vec![place.local])
             }
             BinaryOp(_, box (operand1, operand2))
-            | CheckedBinaryOp(_, box (operand1, operand2)) => {
+             => {
                 let res1 = self.extract_local_from_operand(operand1);
                 let res2 = self.extract_local_from_operand(operand2);
                 match (res1, res2) {
@@ -580,13 +591,13 @@ where
     }
 
     pub fn get_int_const_val(&mut self, mut val: u128, ty: Ty<'tcx>) -> Rc<SymbolicValue> {
-        let param_env = self.body_visitor.type_visitor.get_param_env();
+        // let param_env = self.body_visitor.type_visitor.get_param_env();
         let is_signed;
-        if let Ok(ty_and_layout) = self.body_visitor.context.tcx.layout_of(param_env.and(ty)) {
-            is_signed = ty_and_layout.abi.is_signed();
+        if let Ok(ty_and_layout) = self.body_visitor.type_visitor.layout_of(ty) {
+            is_signed = ty_and_layout.backend_repr.is_signed();
             let size = ty_and_layout.size;
-            if is_signed {
-                val = size.sign_extend(val);
+            if is_signed {  
+                val = size.sign_extend(val) as u128;
             } else {
                 val = size.truncate(val);
             }
@@ -694,7 +705,7 @@ where
 
     fn get_scalar_int_data(scalar_int: &ScalarInt) -> (u128, usize) {
         let size = scalar_int.size();
-        let data: u128 = scalar_int.to_bits(size).unwrap();
+        let data: u128 = scalar_int.try_to_bits(size).unwrap();
         (data, size.bytes() as usize)
     }
 
@@ -705,17 +716,23 @@ where
         literal: &Const<'tcx>,
     ) -> Rc<SymbolicValue> {
         let mut kind = literal.kind();
-        let lty = literal.ty();
+        // let lty = literal.ty();
         // let mut val = literal.val;
         // let ty = literal.ty;
 
         if let rustc_middle::ty::ConstKind::Unevaluated(_unevaluated) = &kind {
-            kind = literal
-                .normalize(
-                    self.body_visitor.context.tcx,
-                    self.body_visitor.type_visitor.get_param_env(),
-                )
-                .kind();
+            let infcx = self
+                .body_visitor
+                .context
+                .tcx
+                .infer_ctxt()
+                .build(TypingMode::non_body_analysis());
+            kind = rustc_trait_selection::traits::evaluate_const(
+                &infcx,
+                *literal,
+                self.body_visitor.type_visitor.get_param_env(),
+            )
+            .kind()
         }
 
         let result;
@@ -737,17 +754,17 @@ where
             // ZSTs, integers, `bool`, `char` and small structs are represented as scalars.
             // See the `ScalarInt` documentation for how `ScalarInt` guarantees that equal values
             // of these types have the same representation.
-            rustc_middle::ty::ConstKind::Value(ValTree::Leaf(scalar_int)) => {
+            rustc_middle::ty::ConstKind::Value(lty, ValTree::Leaf(scalar_int)) => {
                 let (data, size) = Self::get_scalar_int_data(scalar_int);
-                result = self.get_constant_from_scalar(lty, data, size);
+                result = self.get_constant_from_scalar(*lty, data, size);
                 // self.get_constant_value_from_scalar(lty, data, size)
             }
             // The fields of any kind of aggregate. Structs, tuples and arrays are represented by
             // listing their fields' values in order.
             // Enums are represented by storing their discriminant as a field, followed by all
             // the fields of the variant.
-            rustc_middle::ty::ConstKind::Value(val_tree) => {
-                let heap_block = self.get_heap_block_and_path(lty, val_tree);
+            rustc_middle::ty::ConstKind::Value(lty, val_tree) => {
+                let heap_block = self.get_heap_block_and_path(*lty, val_tree);
                 // self.deserialize_val_tree(val_tree, heap_path, lty);
                 return heap_block;
             }
@@ -1281,7 +1298,7 @@ where
     fn visit_call(
         &mut self,
         func: &mir::Operand<'tcx>,
-        args: &[mir::Operand<'tcx>],
+        args: &[Spanned<mir::Operand<'tcx>>],
         destination: mir::Place<'tcx>,
         _target: Option<mir::BasicBlock>,
         _unwind: mir::UnwindAction,
@@ -1329,7 +1346,7 @@ where
         );
         let actual_args: Vec<(Rc<Path>, Rc<SymbolicValue>)> = args
             .iter()
-            .map(|arg| (self.get_operand_path(arg), self.visit_operand(arg)))
+            .map(|arg| (self.get_operand_path(&arg.node), self.visit_operand(&arg.node)))
             .collect();
 
         // let mut args_path_vec: Vec<(Rc<Path>, Rc<SymbolicValue>)> = Vec::new();
@@ -1349,7 +1366,7 @@ where
         let actual_argument_types: Vec<Ty<'tcx>> = args
             .iter()
             .map(|arg| {
-                let arg_ty = self.get_operand_rustc_type(arg);
+                let arg_ty = self.get_operand_rustc_type(&arg.node);
                 self.body_visitor
                     .type_visitor
                     .specialize_generic_argument_type(
@@ -1383,7 +1400,7 @@ where
             callee_generic_argument_map.clone(),
             func_const,
         );
-        call_visitor.args = args;
+        call_visitor.args = &args;
         call_visitor.actual_args = &actual_args;
         call_visitor.actual_argument_types = &actual_argument_types;
         call_visitor.destination = destination.clone();
@@ -1617,14 +1634,14 @@ where
                         debug!("Get RHS Rvalue: Repeat({:?}, {:?})", operand, count);
                         self.visit_repeat(path, operand, count);
                     }
-            mir::Rvalue::Ref(_, _, place) | mir::Rvalue::AddressOf(_, place) => {
+            mir::Rvalue::Ref(_, _, place) | mir::Rvalue::RawPtr(_, place) => {
                         debug!("Get RHS Rvalue: Ref/AddressOf({:?})", place);
                         self.visit_address_of(path, place);
                     }
-            mir::Rvalue::Len(place) => {
-                        debug!("Get RHS Rvalue: Len({:?})", place);
-                        self.visit_len(path, place);
-                    }
+            // mir::Rvalue::Len(place) => {
+            //             debug!("Get RHS Rvalue: Len({:?})", place);
+            //             self.visit_len(path, place);
+            //         }
             mir::Rvalue::Cast(cast_kind, operand, ty) => {
                         debug!(
                             "Get RHS Rvalue: Cast({:?}, {:?}, {:?})",
@@ -1639,13 +1656,13 @@ where
                         );
                         self.visit_binary_op(path, *bin_op, left_operand, right_operand);
                     }
-            mir::Rvalue::CheckedBinaryOp(bin_op, box (left_operand, right_operand)) => {
-                        debug!(
-                            "Get RHS Rvalue: CheckedBinaryOp({:?}, {:?}, {:?})",
-                            bin_op, left_operand, right_operand
-                        );
-                        self.visit_checked_binary_op(path, *bin_op, left_operand, right_operand);
-                    }
+            // mir::Rvalue::CheckedBinaryOp(bin_op, box (left_operand, right_operand)) => {
+            //             debug!(
+            //                 "Get RHS Rvalue: CheckedBinaryOp({:?}, {:?}, {:?})",
+            //                 bin_op, left_operand, right_operand
+            //             );
+            //             self.visit_checked_binary_op(path, *bin_op, left_operand, right_operand);
+            //         }
             mir::Rvalue::NullaryOp(null_op, ty) => {
                         debug!("Get RHS Rvalue: NullaryOp({:?}, {:?})", null_op, ty);
                         self.visit_nullary_op(path, *null_op, *ty);
@@ -1788,7 +1805,8 @@ where
                 }
             }
             mir::AggregateKind::Closure(def_id, args)
-            | mir::AggregateKind::Coroutine(def_id, args) => {
+            | mir::AggregateKind::Coroutine(def_id, args) 
+            | mir::AggregateKind::CoroutineClosure(def_id, args)=> {
                 let ty = self.body_visitor.context.tcx.type_of(*def_id).skip_binder();
                 let func_const = self.visit_function_reference(*def_id, ty, Some(args));
                 let func_val = Rc::new(func_const.clone().into());
@@ -1797,6 +1815,15 @@ where
                     let field_path = Path::new_field(path.clone(), i);
                     self.visit_use(field_path, operand);
                 }
+            }
+            mir::AggregateKind::RawPtr(ty, mutbl) => {
+                let thin_pointer_path = Path::new_field(path.clone(), 0);
+                let pointer_type = Ty::new_ptr(self.body_visitor.context.tcx, *ty, *mutbl);
+                self.body_visitor.type_visitor
+                    .set_path_rustc_type(thin_pointer_path.clone(), pointer_type);
+                self.visit_use(thin_pointer_path, &operands[0usize.into()]);
+                let metadata_path = Path::new_field(path, 1);
+                self.visit_use(metadata_path, &operands[1usize.into()]);
             }
         }
     }
@@ -1828,10 +1855,9 @@ where
         null_op: mir::NullOp,
         ty: rustc_middle::ty::Ty<'tcx>,
     ) {
-        let param_env = self.body_visitor.type_visitor.get_param_env();
         let len =
             // Get the layout of the type
-            if let Ok(ty_and_layout) = self.body_visitor.context.tcx.layout_of(param_env.and(ty)) {
+            if let Ok(ty_and_layout) = self.body_visitor.type_visitor.layout_of(ty) {
                 Rc::new((ty_and_layout.layout.size.bytes() as u128).into())
             } else {
                 SymbolicValue::make_typed_unknown(ExpressionType::U128)
@@ -1841,13 +1867,10 @@ where
             mir::NullOp::AlignOf => alignment,
             mir::NullOp::SizeOf => len,
             mir::NullOp::OffsetOf(fields) => {
-                if let Ok(ty_and_layout) = self.body_visitor.context.tcx.layout_of(param_env.and(ty)) {
-                    let lcx = LayoutCx {
-                        tcx: self.body_visitor.context.tcx,
-                        param_env: self.body_visitor.type_visitor.get_param_env(),
-                    };
-                    let offset_in_bytes = ty_and_layout
-                        .offset_of_subfield(&lcx, fields.iter())
+                if let Ok(ty_and_layout) = self.body_visitor.type_visitor.layout_of(ty) {
+
+                    let offset_in_bytes = self.body_visitor.context.tcx
+                        .offset_of_subfield(self.body_visitor.type_visitor.get_typing_env(), ty_and_layout, fields.iter())
                         .bytes();
                     Rc::new((offset_in_bytes as u128).into())
                 } else {
@@ -1860,6 +1883,7 @@ where
                     symbolic_value::BOTTOM.into()
                 }
             }
+            mir::NullOp::UbChecks => SymbolicValue::make_typed_unknown(ExpressionType::U128),
         };
         self.body_visitor.state.update_value_at(path, value);
     }
@@ -1879,6 +1903,9 @@ where
                 self.body_visitor
                     .state
                     .update_value_at(path, val.logical_not());
+            }
+            mir::UnOp::PtrMetadata => {
+                // FIXME: Implement this
             }
         }
     }
@@ -1920,15 +1947,16 @@ where
             // An exposing pointer to address cast. A cast between a pointer and an integer type, or
             // between a function pointer and an integer type.
             // See the docs on `expose_addr` for more details.
-            mir::CastKind::PointerExposeAddress
+            mir::CastKind::PointerExposeProvenance
             // An address-to-pointer cast that picks up an exposed provenance.
             // See the docs on `from_exposed_addr` for more details.
-            | mir::CastKind::PointerFromExposedAddress
+            | mir::CastKind::PointerWithExposedProvenance
             // All sorts of pointer-to-pointer casts. Note that reference-to-raw-ptr casts are
             // translated into `&raw mut/const *r`, i.e., they are not actually casts.
             | mir::CastKind::PointerCoercion(..)
             // Cast into a dyn* object.
-            | mir::CastKind::DynStar => {
+            // | mir::CastKind::DynStar 
+            => {
                 self.visit_use(path, operand);
             }
         }
@@ -1960,6 +1988,10 @@ where
             mir::BinOp::MulUnchecked => todo!(),
             mir::BinOp::ShlUnchecked => todo!(),
             mir::BinOp::ShrUnchecked => todo!(),
+            mir::BinOp::AddWithOverflow => todo!(),
+            mir::BinOp::SubWithOverflow => todo!(),
+            mir::BinOp::MulWithOverflow => todo!(),
+            mir::BinOp::Cmp => todo!(),
         };
         Some(res)
     }
@@ -2034,6 +2066,7 @@ where
         }
     }
 
+    #[allow(dead_code)]
     fn visit_checked_binary_op(
         &mut self,
         path: Rc<Path>,
@@ -2077,7 +2110,7 @@ where
         info!("visit_literal {:?}", literal);
         match literal {
             // This constant came from the type system
-            mir::Const::Ty(c) => self.visit_constant(c),
+            mir::Const::Ty(_ty, c) => self.visit_constant(c),
             // An unevaluated mir constant which is not part of the type system.
             // mir::Const::Unevaluated(c, ty) => self.visit_unevaluated_const(c, *ty),
             // // This constant contains something the type system cannot handle (e.g. pointers).
@@ -2205,7 +2238,7 @@ where
                             }
                         }
                     }
-                    Some(GlobalAlloc::Function(instance)) => {
+                    Some(GlobalAlloc::Function{ instance }) => {
                         let def_id = instance.def.def_id();
                         let args = self.body_visitor.type_visitor.specialize_generic_args(
                             instance.args,
@@ -2293,20 +2326,10 @@ where
                         );
                         SymbolicValue::make_reference(array_path)
                     }
-                    // TyKind::Ref(_, t, _) if matches!(t.kind(), TyKind::Str) => {
-                    //     let s = std::str::from_utf8(slice).expect("non utf8 str");
-                    //     let string_const = &mut self.body_visitor.crate_context.constant_value_cache.get_string_for(s);
-                    //     let string_val: Rc<AbstractValue> = Rc::new(string_const.clone().into());
-                    //     let len_val: Rc<AbstractValue> =
-                    //         Rc::new(ConstantDomain::U128(s.len() as u128).into());
-
-                    //     let str_path = Path::new_computed(string_val.clone());
-                    //     self.body_visitor.state.update_value_at(str_path.clone(), string_val);
-
-                    //     let len_path = Path::new_length(str_path.clone());
-                    //     self.body_visitor.state.update_value_at(len_path, len_val);
-                    //     AbstractValue::make_reference(str_path)
-                    // }
+                    TyKind::Ref(_, t, _) if matches!(t.kind(), TyKind::Str) => {
+                        // FIXME: This is a hack to get the string value from the slice
+                        Rc::new(self.get_constant_from_scalar(lty, 0, 0).into())
+                    }
                     _ => {
                         panic!("ConstValue::Slice with type {:?}", lty);
                     }
@@ -2618,7 +2641,7 @@ where
             //         .update_value_at(target_path, AbstractValue::make_reference(str_path));
             //     &[]
             // }
-            TyKind::RawPtr(rustc_middle::ty::TypeAndMut { .. }) | TyKind::Ref(..) => {
+            TyKind::RawPtr(..) | TyKind::Ref(..) => {
                 // serialized pointers are not the values pointed to, just some number.
                 // todo: figure out how to deference that number and deserialize the
                 // value to which this pointer refers.
@@ -2709,18 +2732,24 @@ where
         let discr_ty_layout = self.body_visitor.type_visitor.layout_of(discr_ty).unwrap();
         trace!("discr_ty_layout {:?}", discr_ty_layout);
         match enum_ty_layout.variants {
+            Variants::Empty => {
+                discr_signed = false;
+                discr_bits = 0;
+                discr_index = VariantIdx::new(0);
+                discr_has_data = false;
+            }
             Variants::Single { index } => {
                 // The enum only contains one variant.
 
                 // Truncates the value of the discriminant to fit into the layout.
-                discr_signed = discr_ty_layout.abi.is_signed();
+                discr_signed = discr_ty_layout.backend_repr.is_signed();
                 discr_bits = match enum_ty_layout
                     .ty
                     .discriminant_for_variant(self.body_visitor.context.tcx, index)
                 {
                     Some(discr) => {
                         if discr_signed {
-                            discr_ty_layout.size.sign_extend(discr.val)
+                            discr_ty_layout.size.sign_extend(discr.val) as u128
                         } else {
                             discr_ty_layout.size.truncate(discr.val)
                         }
@@ -2744,7 +2773,7 @@ where
                 match *tag_encoding {
                     TagEncoding::Direct => {
                         discr_bits = if discr_signed {
-                            tag_primitive.size(&self.body_visitor.context.tcx).sign_extend(data)
+                            tag_primitive.size(&self.body_visitor.context.tcx).sign_extend(data) as u128
                         } else {
                             data
                         };
@@ -2954,6 +2983,7 @@ where
     }
 
     // path = Len(place)
+    #[allow(dead_code)]
     fn visit_len(&mut self, path: Rc<Path>, place: &mir::Place<'tcx>) {
         let value_path = self.visit_place(place);
         let len_value = self.get_len(value_path);

@@ -117,6 +117,7 @@ unsafe impl Send for AbstractStateRef {}
 unsafe impl Sync for AbstractState {}
 unsafe impl Send for AbstractState {}
 
+#[allow(static_mut_refs)]
 impl Drop for AbstractState {
     fn drop(&mut self) {
         unsafe {
@@ -175,6 +176,7 @@ where
 
 // The following `impl`s implement the `get_manager` function for different kinds of Apron domains
 // They simply call their corresponding manager allocation API if the manager is not created yet
+#[allow(static_mut_refs)]
 impl GetManagerTrait for ApronAbstractDomain<ApronInterval> {
     fn get_manager() -> Rc<ApronManager> {
         if let Some(apron_man) = unsafe { APRON_MANAGER.clone() } {
@@ -193,6 +195,7 @@ impl GetManagerTrait for ApronAbstractDomain<ApronInterval> {
     }
 }
 
+#[allow(static_mut_refs)]
 impl GetManagerTrait for ApronAbstractDomain<ApronPolyhedra> {
     fn get_manager() -> Rc<ApronManager> {
         if let Some(apron_man) = unsafe { APRON_MANAGER.clone() } {
@@ -211,6 +214,7 @@ impl GetManagerTrait for ApronAbstractDomain<ApronPolyhedra> {
     }
 }
 
+#[allow(static_mut_refs)]
 impl GetManagerTrait for ApronAbstractDomain<ApronOctagon> {
     fn get_manager() -> Rc<ApronManager> {
         if let Some(apron_man) = unsafe { APRON_MANAGER.clone() } {
@@ -229,6 +233,7 @@ impl GetManagerTrait for ApronAbstractDomain<ApronOctagon> {
     }
 }
 
+#[allow(static_mut_refs)]
 impl GetManagerTrait for ApronAbstractDomain<ApronLinearEqualities> {
     fn get_manager() -> Rc<ApronManager> {
         if let Some(apron_man) = unsafe { APRON_MANAGER.clone() } {
@@ -247,6 +252,7 @@ impl GetManagerTrait for ApronAbstractDomain<ApronLinearEqualities> {
     }
 }
 
+#[allow(static_mut_refs)]
 impl GetManagerTrait for ApronAbstractDomain<ApronPplPolyhedra> {
     fn get_manager() -> Rc<ApronManager> {
         if let Some(apron_man) = unsafe { APRON_MANAGER.clone() } {
@@ -267,6 +273,7 @@ impl GetManagerTrait for ApronAbstractDomain<ApronPplPolyhedra> {
     }
 }
 
+#[allow(static_mut_refs)]
 impl GetManagerTrait for ApronAbstractDomain<ApronPplLinearCongruences> {
     fn get_manager() -> Rc<ApronManager> {
         if let Some(apron_man) = unsafe { APRON_MANAGER.clone() } {
@@ -287,6 +294,7 @@ impl GetManagerTrait for ApronAbstractDomain<ApronPplLinearCongruences> {
     }
 }
 
+#[allow(static_mut_refs)]
 impl GetManagerTrait for ApronAbstractDomain<ApronPkgridPolyhedraLinCongruences> {
     fn get_manager() -> Rc<ApronManager> {
         if let Some(apron_man) = unsafe { APRON_MANAGER.clone() } {

@@ -29,6 +29,7 @@ use rustc_hir::def_id::DefId;
 // use rustc_middle::ty::{Ty, TyKind};
 use rustc_middle::mir;
 use rustc_middle::ty::{GenericArgsRef, Ty, TyKind};
+use rustc_span::source_map::Spanned;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter, Result};
 use std::rc::Rc;
@@ -59,7 +60,7 @@ where
     /// The callee's generic arguments' types
     pub callee_generic_argument_map: Option<HashMap<rustc_span::Symbol, Ty<'tcx>>>,
 
-    pub args: &'call [mir::Operand<'tcx>],
+    pub args: &'call [Spanned<mir::Operand<'tcx>>],
 
     /// The actual arguments of the callee, the paths and symbolic values are from the caller
     pub actual_args: &'call [(Rc<Path>, Rc<SymbolicValue>)],
@@ -183,17 +184,24 @@ where
 
             let post = body_visitor.post.clone();
             debug!("Fixed point iterator finishes, post: {:?}", post);
-
-            // Compute the join of all the basic blocks that contain a return terminator
+            // // Compute the join of all the basic blocks that contain a return terminator
+            // let joined_state = post
+            //     .into_iter()
+            //     .filter(|(bb, _domain)| body_visitor.result_blocks.contains(bb))
+            //     .map(|(_bb, domain)| domain)
+            //     .reduce(|state1, state2| state1.join(&state2))
+            //     .expect("panic in fold1");
+            // return joined_state;
+            // example3/case2触发无return block
             let joined_state = post
                 .into_iter()
                 .filter(|(bb, _domain)| body_visitor.result_blocks.contains(bb))
                 .map(|(_bb, domain)| domain)
                 .reduce(|state1, state2| state1.join(&state2))
-                .expect("panic in fold1");
+                .unwrap_or_else(|| AbstractDomain::<DomainType>::default()); // 提供一个默认值
             return joined_state;
         }
-        // If MIR is NOT available, return default abstract domain
+        // If MIR is NOT available, return default abstract domain  
         // AbstractDomain::default()
         self.block_visitor.state().clone()
     }
@@ -628,18 +636,17 @@ where
             .expect("std::mem::size_of must be called with generic arguments")
             .get(&sym)
             .expect("std::mem::size must have generic argument T");
-        let param_env = self
-            .block_visitor
-            .body_visitor
-            .context
-            .tcx
-            .param_env(self.callee_def_id);
+        // let param_env = self
+        //     .block_visitor
+        //     .body_visitor
+        //     .context
+        //     .tcx
+        //     .param_env(self.callee_def_id);
         if let Ok(ty_and_layout) = self
             .block_visitor
             .body_visitor
-            .context
-            .tcx
-            .layout_of(param_env.and(*t))
+            .type_visitor
+            .layout_of(*t)
         {
             Rc::new((ty_and_layout.layout.size.bytes() as u128).into())
         } else {
@@ -678,7 +685,7 @@ where
 
         // The source
         let source = self.args[0].clone();
-        if let Some(taint_sources) = block_visitor.extract_local_from_operand(&source) {
+        if let Some(taint_sources) = block_visitor.extract_local_from_operand(&source.node) {
             for local in taint_sources {
                 block_visitor.body_visitor.tainted_variables.insert(local);
             }
@@ -836,12 +843,13 @@ where
                 }
             }
         }
-        let mut warning = self
+        let warning = self
             .block_visitor
             .body_visitor
             .context
             .session
-            .dcx().struct_span_warn(
+            .dcx()
+            .struct_span_warn(
                 self.block_visitor.body_visitor.current_span,
                 format!("[MirChecker] Possible error: the ptr from different object"),
             );
@@ -935,7 +943,7 @@ where
         match check_result {
             CheckerResult::Safe => (),
             CheckerResult::Unsafe => {
-                let mut error = body_visitor.context.session.dcx().struct_span_warn(
+                let error = body_visitor.context.session.dcx().struct_span_warn(
                     body_visitor.current_span,
                     format!("[MirChecker] Provably error: index out of bound",),
                 );
@@ -944,7 +952,7 @@ where
                 //return;
             }
             CheckerResult::Warning => {
-                let mut warning = body_visitor.context.session.dcx().struct_span_warn(
+                let warning = body_visitor.context.session.dcx().struct_span_warn(
                     body_visitor.current_span,
                     format!("[MirChecker] Possible error: index out of bound"),
                 );
@@ -1010,7 +1018,7 @@ where
         match check_result {
             CheckerResult::Safe => (),
             CheckerResult::Unsafe => {
-                let mut error = body_visitor.context.session.dcx().struct_span_warn(
+                let error = body_visitor.context.session.dcx().struct_span_warn(
                     body_visitor.current_span,
                     format!("[MirChecker] Provably error: index out of bound",),
                 );
@@ -1019,7 +1027,7 @@ where
                 //return;
             }
             CheckerResult::Warning => {
-                let mut warning = body_visitor.context.session.dcx().struct_span_warn(
+                let warning = body_visitor.context.session.dcx().struct_span_warn(
                     body_visitor.current_span,
                     format!("[MirChecker] Possible error: index out of bound"),
                 );
@@ -1188,7 +1196,7 @@ where
         match check_result {
             CheckerResult::Safe => (),
             CheckerResult::Unsafe => {
-                let mut error = body_visitor.context.session.dcx().struct_span_warn(
+                let error = body_visitor.context.session.dcx().struct_span_warn(
                     body_visitor.current_span,
                     format!("[MirChecker] Provably error: index out of bound",),
                 );
@@ -1197,7 +1205,7 @@ where
                 //return;
             }
             CheckerResult::Warning => {
-                let mut warning = body_visitor.context.session.dcx().struct_span_warn(
+                let warning = body_visitor.context.session.dcx().struct_span_warn(
                     body_visitor.current_span,
                     format!("[MirChecker] Possible error: index out of bound"),
                 );

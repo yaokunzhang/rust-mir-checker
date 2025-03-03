@@ -79,7 +79,7 @@ fn main() {
             run_compiler.run()
         }
     })
-    .and_then(|result| result);
+    .and_then(|result| Ok(result));
 
     let exit_code = match result {
         Ok(_) => EXIT_SUCCESS,

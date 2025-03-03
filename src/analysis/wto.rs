@@ -1,5 +1,5 @@
 use log::debug;
-use rustc_data_structures::graph::WithSuccessors;
+use rustc_data_structures::graph::Successors;
 use rustc_middle::mir::BasicBlock;
 use rustc_middle::mir::{self, Body};
 use std::cell::RefCell;

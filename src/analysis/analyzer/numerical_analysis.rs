@@ -28,15 +28,16 @@ impl<'tcx, 'a, 'compiler> StaticAnalysis<'tcx, 'a, 'compiler>
     }
 
     fn emit_diagnostics(&mut self) {
-        let mut diagnostics: Vec<&mut Diagnostic<'_>> = self
+        let mut diagnostics: Vec<Diagnostic<'_>> = self
             .context
             .diagnostics_for
             .map
             .values_mut()
+            .map(|v| v.iter_mut().filter_map(|x| x.take()))
             .flatten()
             .collect();
 
-        diagnostics.sort_by(Diagnostic::compare);
+        diagnostics.sort_by(|a, b| Diagnostic::compare(a, b));
 
         // If `deny_warnings` flag is set, change all diagnoses' level to `error`
         // This is used for debugging
@@ -47,13 +48,13 @@ impl<'tcx, 'a, 'compiler> StaticAnalysis<'tcx, 'a, 'compiler>
         // }
 
         // According to `suppress_warnings` flag, filter out warnings that users want to ignore
-        let mut diagnostics: Vec<&mut Diagnostic<'_>> =
+        let diagnostics: Vec<Diagnostic<'_>> =
             if let Some(suppressed_warnings) = &self.context.analysis_options.suppressed_warnings {
-                let mut res: Vec<&mut Diagnostic<'_>> = Vec::new();
-                for diag in diagnostics.iter_mut() {
+                let mut res: Vec<Diagnostic<'_>> = Vec::new();
+                for diag in diagnostics.into_iter() {
                     if suppressed_warnings.contains(&diag.cause) {
-                        // diag.cancel();
-                        diag.emit();
+                        diag.cancel();
+                        // diag.emit();
                     } else {
                         res.push(diag);
                     }
@@ -65,15 +66,15 @@ impl<'tcx, 'a, 'compiler> StaticAnalysis<'tcx, 'a, 'compiler>
 
         // According to `memory_safety_only` flag, filter only memory-safety diagnosis
         // Cancel other diagnoses that will not be emitted
-        let diagnostics_to_emit: Vec<&mut Diagnostic<'_>> =
+        let diagnostics_to_emit: Vec<Diagnostic<'_>> =
             if self.context.analysis_options.memory_safety_only {
-                let mut res: Vec<&mut Diagnostic<'_>> = Vec::new();
-                for diag in diagnostics.iter_mut() {
+                let mut res: Vec<Diagnostic<'_>> = Vec::new();
+                for diag in diagnostics.into_iter() {
                     if diag.is_memory_safety {
                         res.push(diag);
                     } else {
-                        // diag.cancel();
-                        diag.emit();
+                        diag.cancel();
+                        //diag.emit();
                     }
                 }
                 res
@@ -81,7 +82,7 @@ impl<'tcx, 'a, 'compiler> StaticAnalysis<'tcx, 'a, 'compiler>
                 diagnostics.into_iter().collect()
             };
 
-        fn emit(db: &mut Diagnostic<'_>) {
+        fn emit(db: Diagnostic<'_>) {
             db.emit();
         }
 

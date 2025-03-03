@@ -16,6 +16,7 @@ use rug::Integer;
 use rustc_hir::def_id::DefId;
 // use rustc_middle::ty::subst::GenericArgsRef;
 use rustc_middle::ty::{GenericArgsRef, Ty, TyCtxt};
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter, Result};
 use std::rc::Rc;
@@ -48,7 +49,7 @@ impl Debug for ConstantValue {
 }
 
 /// Information that identifies a function or generic function instance.
-#[derive(Clone, Debug, Eq, PartialOrd, PartialEq, Hash, Ord)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct FunctionReference {
     /// The crate specific key that is used to identify the function in the current crate.
     /// This is not available for functions returned by calls to functions from other crates,
@@ -64,6 +65,30 @@ pub struct FunctionReference {
     pub known_name: KnownNames,
     /// The name of the function
     pub function_name: Rc<String>,
+}
+
+// `DefId` doesn't/can't implement `Ord` and `PartialOrd`, so they can't be derived.
+// Ref: <https://github.com/rust-lang/rust/blob/eeb90cda1969383f56a2637cbd3037bdf598841c/compiler/rustc_span/src/def_id.rs#L239-L243>
+impl Ord for FunctionReference {
+    fn cmp(&self, other: &Self) -> Ordering {
+        if self == other {
+            // `Ord` (and `PartialOrd`) implementation should be consistent with `PartialEq` and `Eq`.
+            // Ref: <https://doc.rust-lang.org/nightly/std/cmp/trait.Ord.html#how-can-i-implement-ord>
+            return Ordering::Equal;
+        }
+        // compare each field in order of importance
+        self.function_id
+            .cmp(&other.function_id)
+            .then_with(|| self.generic_arguments.cmp(&other.generic_arguments))
+            .then_with(|| self.known_name.cmp(&other.known_name))
+            .then_with(|| self.function_name.cmp(&other.function_name))
+    }
+}
+
+impl PartialOrd for FunctionReference {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 /// Constructors

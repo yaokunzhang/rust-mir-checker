@@ -9,7 +9,7 @@
 
 use crate::analysis::memory::constant_value::ConstantValueCache;
 use crate::analysis::memory::known_names::KnownNamesCache;
-use rustc_errors::DiagnosticBuilder;
+use rustc_errors::Diag;
 use rustc_hir::def_id::DefId;
 use rustc_middle::ty::GenericArgsRef;
 use std::collections::HashMap;
@@ -21,7 +21,7 @@ use std::fmt::{Debug, Formatter, Result};
 ///
 pub struct CrateContext<'compiler, 'tcx> {
     /// Stores the diagnostic messages for the current crate
-    pub buffered_diagnostics: Vec<DiagnosticBuilder<'compiler>>,
+    pub buffered_diagnostics: Vec<Diag<'compiler>>,
 
     /// Caches the constant in the current crate
     pub constant_value_cache: ConstantValueCache<'tcx>,

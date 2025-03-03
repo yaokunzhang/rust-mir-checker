@@ -5,7 +5,6 @@ use crate::analysis::option::AnalysisOption;
 use log::{error, info};
 use rustc_driver::Compilation;
 use rustc_interface::interface;
-use rustc_interface::Queries;
 use rustc_middle::ty::TyCtxt;
 
 pub struct MirCheckerCallbacks {
@@ -39,12 +38,9 @@ impl rustc_driver::Callbacks for MirCheckerCallbacks {
     fn after_analysis<'compiler, 'tcx>(
         &mut self,
         compiler: &'compiler interface::Compiler,
-        queries: &'tcx Queries<'tcx>,
+        tcx: TyCtxt<'tcx>,
     ) -> Compilation {
-        queries
-            .global_ctxt()
-            .unwrap()
-            .enter(|tcx| self.run_analysis(compiler, tcx));
+        self.run_analysis(compiler, tcx);
         Compilation::Continue
     }
 }
