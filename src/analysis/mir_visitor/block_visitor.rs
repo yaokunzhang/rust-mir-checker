@@ -1625,6 +1625,7 @@ where
     // }
 
     fn visit_rvalue(&mut self, path: Rc<Path>, rvalue: &mir::Rvalue<'tcx>) {
+        // println!("visit_rvalue: {:?}", rvalue);
         match rvalue {
             mir::Rvalue::Use(operand) => {
                         debug!("Get RHS Rvalue: Use({:?})", operand);
@@ -1964,16 +1965,16 @@ where
 
     fn bin_op_to_apron_bin_op(&mut self, bin_op: mir::BinOp) -> Option<ApronOperation> {
         let res = match bin_op {
-            mir::BinOp::Add => ApronOperation::Add,
-            mir::BinOp::Sub => ApronOperation::Sub,
-            mir::BinOp::Mul => ApronOperation::Mul,
+            mir::BinOp::Add | mir::BinOp::AddUnchecked | mir::BinOp::AddWithOverflow => ApronOperation::Add,
+            mir::BinOp::Sub | mir::BinOp::SubUnchecked | mir::BinOp::SubWithOverflow => ApronOperation::Sub,
+            mir::BinOp::Mul | mir::BinOp::MulUnchecked | mir::BinOp::MulWithOverflow => ApronOperation::Mul,
             mir::BinOp::Div => ApronOperation::Div,
             mir::BinOp::Rem => ApronOperation::Rem,
             mir::BinOp::BitXor => ApronOperation::Xor,
             mir::BinOp::BitAnd => ApronOperation::And,
             mir::BinOp::BitOr => ApronOperation::Or,
-            mir::BinOp::Shl => ApronOperation::Shl,
-            mir::BinOp::Shr => ApronOperation::Shr,
+            mir::BinOp::Shl | mir::BinOp::ShlUnchecked => ApronOperation::Shl,
+            mir::BinOp::Shr | mir::BinOp::ShrUnchecked => ApronOperation::Shr,
 
             // Eq, Lt, Le, Ne, Ge, Gt, Offset are not handled by apron library
             mir::BinOp::Eq
@@ -1982,16 +1983,8 @@ where
             | mir::BinOp::Le
             | mir::BinOp::Lt
             | mir::BinOp::Ne
-            | mir::BinOp::Offset => return None,
-            mir::BinOp::AddUnchecked => todo!(),
-            mir::BinOp::SubUnchecked => todo!(),
-            mir::BinOp::MulUnchecked => todo!(),
-            mir::BinOp::ShlUnchecked => todo!(),
-            mir::BinOp::ShrUnchecked => todo!(),
-            mir::BinOp::AddWithOverflow => todo!(),
-            mir::BinOp::SubWithOverflow => todo!(),
-            mir::BinOp::MulWithOverflow => todo!(),
-            mir::BinOp::Cmp => todo!(),
+            | mir::BinOp::Offset
+            | mir::BinOp::Cmp => return None,
         };
         Some(res)
     }

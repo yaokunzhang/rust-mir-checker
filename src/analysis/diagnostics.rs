@@ -27,20 +27,11 @@ impl<O> From<&mir::AssertKind<O>> for DiagnosticCause {
         match assert_kind {
             mir::AssertKind::BoundsCheck { .. } => DiagnosticCause::Index,
             mir::AssertKind::Overflow(bin_op, ..) => match bin_op {
-                Add | Sub | Mul | Div | Rem => DiagnosticCause::Arithmetic,
-                Shr | Shl | BitXor | BitAnd | BitOr => DiagnosticCause::Bitwise,
-                Eq | Lt | Le | Ne | Ge | Gt => DiagnosticCause::Comparison,
+                Add | Sub | Mul | Div | Rem | AddUnchecked | SubUnchecked | MulUnchecked
+                | AddWithOverflow | SubWithOverflow | MulWithOverflow => DiagnosticCause::Arithmetic,
+                Shr | Shl | BitXor | BitAnd | BitOr | ShlUnchecked | ShrUnchecked => DiagnosticCause::Bitwise,
+                Eq | Lt | Le | Ne | Ge | Gt | Cmp=> DiagnosticCause::Comparison,
                 Offset => DiagnosticCause::Index,
-                // TODO: handle these cases
-                AddUnchecked => todo!(),
-                SubUnchecked => todo!(),
-                MulUnchecked => todo!(),
-                ShlUnchecked => todo!(),
-                ShrUnchecked => todo!(),
-                AddWithOverflow => todo!(),
-                SubWithOverflow => todo!(),
-                MulWithOverflow => todo!(),
-                Cmp => todo!(),    
             },
             mir::AssertKind::OverflowNeg(..) => DiagnosticCause::Arithmetic,
             mir::AssertKind::DivisionByZero(..) | mir::AssertKind::RemainderByZero(..) => {

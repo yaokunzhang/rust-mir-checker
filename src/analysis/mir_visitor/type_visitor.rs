@@ -20,8 +20,7 @@ use rustc_hir::def_id::DefId;
 
 use rustc_middle::mir;
 use rustc_middle::ty::{
-    AdtDef, ExistentialPredicate, ExistentialProjection, ExistentialTraitRef,
-    FnSig, GenericArg, GenericArgKind, GenericArgs, GenericArgsRef, ParamTy, Ty, TyCtxt, TyKind,
+    AdtDef, CoroutineArgsExt, ExistentialPredicate, ExistentialProjection, ExistentialTraitRef, FnSig, GenericArg, GenericArgKind, GenericArgs, GenericArgsRef, ParamTy, Ty, TyCtxt, TyKind
 };
 use rustc_target::abi::FieldIdx;
 
@@ -378,36 +377,71 @@ impl<'compilation, 'tcx> TypeVisitor<'tcx> {
         place_projection
             .iter()
             .fold(base_ty, |base_ty, projection_elem| match projection_elem {
-                mir::ProjectionElem::Deref => match &base_ty.kind() {
+                mir::ProjectionElem::Deref => match base_ty.kind() {
                     TyKind::Adt(..) => base_ty,
                     TyKind::RawPtr(ty, _) => *ty,
                     TyKind::Ref(_, ty, _) => *ty,
                     _ => {
-                        debug!(
-                            "span: {:?}\nelem: {:?} type: {:?}",
+                        info!(
+                            "bad deref projection span: {:?}\nelem: {:?} type: {:?}",
                             current_span, projection_elem, base_ty
                         );
-                        unreachable!();
+                        self.tcx.types.never
                     }
                 },
-                mir::ProjectionElem::Field(_, ty) => *ty,
-                mir::ProjectionElem::Index(_)
-                | mir::ProjectionElem::ConstantIndex { .. }
-                | mir::ProjectionElem::Subslice { .. } => match &base_ty.kind() {
-                    TyKind::Adt(..) => base_ty,
-                    TyKind::Array(ty, _) => *ty,
-                    TyKind::Ref(_, ty, _) => get_element_type(*ty),
-                    TyKind::Slice(ty) => *ty,
-                    _ => {
+                mir::ProjectionElem::Field(_, ty) => {
+                    self.specialize_generic_argument_type(*ty, &self.generic_argument_map)
+                }
+                mir::ProjectionElem::Subslice { .. } => base_ty,
+                mir::ProjectionElem::Index(_) | mir::ProjectionElem::ConstantIndex { .. } => {
+                    match base_ty.kind() {
+                        TyKind::Adt(..) => base_ty,
+                        TyKind::Array(ty, _) => *ty,
+                        TyKind::Ref(_, ty, _) => get_element_type(*ty),
+                        TyKind::Slice(ty) => *ty,
+                        _ => {
+                            debug!(
+                                "span: {:?}\nelem: {:?} type: {:?}",
+                                current_span, projection_elem, base_ty
+                            );
+                            panic!();
+                        }
+                    }
+                }
+                mir::ProjectionElem::Subtype(ty) => *ty,
+                mir::ProjectionElem::OpaqueCast(ty) => *ty,
+                mir::ProjectionElem::Downcast(_, ordinal) => {
+                    if let TyKind::Adt(def, args) = base_ty.kind() {
+                        if ordinal.index() >= def.variants().len() {
+                            debug!(
+                                "illegally down casting to index {} of {:?} at {:?}",
+                                ordinal.index(),
+                                base_ty,
+                                current_span
+                            );
+                            let variant = &def.variants().iter().last().unwrap();
+                            let field_tys = variant.fields.iter().map(|fd| fd.ty(self.tcx, args));
+                            return Ty::new_tup_from_iter(self.tcx, field_tys);
+                        }
+                        let variant = &def.variants()[*ordinal];
+                        let field_tys = variant.fields.iter().map(|fd| fd.ty(self.tcx, args));
+                        return Ty::new_tup_from_iter(self.tcx, field_tys);
+                    } else if let TyKind::Coroutine(def_id, args) = base_ty.kind() {
+                        let mut tuple_types = args.as_coroutine().state_tys(*def_id, self.tcx);
+                        if let Some(field_tys) = tuple_types.nth(ordinal.index()) {
+                            return Ty::new_tup_from_iter(self.tcx, field_tys);
+                        }
                         debug!(
-                            "span: {:?}\nelem: {:?} type: {:?}",
-                            current_span, projection_elem, base_ty
+                            "illegally down casting to index {} of {:?} at {:?}",
+                            ordinal.index(),
+                            base_ty,
+                            current_span
                         );
-                        unreachable!();
+                    } else {
+                        info!("unexpected type for downcast {:?}", base_ty);
                     }
-                },
-                mir::ProjectionElem::Downcast(..) => base_ty,
-                mir::ProjectionElem::OpaqueCast(_) | mir::ProjectionElem::Subtype(_) => todo!(),
+                    base_ty
+                }
             })
     }
 
