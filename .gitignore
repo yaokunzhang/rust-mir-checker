@@ -16,3 +16,6 @@ scripts/real-world-crates/**/
 scripts/operating-systems
 scripts/evaluations/**/
 main
+crates/
+test1
+case*
